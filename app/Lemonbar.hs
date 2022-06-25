@@ -230,16 +230,15 @@ defaultFg, defaultBg :: Color
 defaultFg = "#FFFFFFFF"
 defaultBg = "#FF000000"
 
--- semiactive, {"#FF454545", "#FFCCCCCC"}},
--- good, {"#FF10D010", "#FF000000"}},
-
-defaultColorPair, neutralColorPair, urgentColorPair, inactiveColorPair, focusedColorPair :: ColorPair
+defaultColorPair, unfocusedColorPair, semifocusedColorPair, focusedColorPair, urgentColorPair, neutralColorPair :: ColorPair
 defaultColorPair = (defaultFg, defaultBg)
-neutralColorPair = ("#FFCCCCCC", "#FF008000")
-urgentColorPair = ("#FFCCCCCC", "#FFD01010")
-inactiveColorPair = ("#FF707070", "#FF2A2A2A")
+unfocusedColorPair = ("#FF707070", "#FF2A2A2A")
+semifocusedColorPair = ("#FFCCCCCC", "#FF454545")
 focusedColorPair = ("#FFCCCCCC", "#FF1010D0")
+urgentColorPair = ("#FFCCCCCC", "#FFD01010")
+neutralColorPair = ("#FFCCCCCC", "#FF008000")
 
+-- good, {"#FF10D010", "#FF000000"}},
 -- info, {"#FFCDCD00", "#FF000000"}},
 -- warn, {"#FFD01010", "#FFCCCCCC"}},
 -- critical, {"#FFFF0000", "#FFFFFFFF"}},

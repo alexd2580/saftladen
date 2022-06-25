@@ -3,7 +3,7 @@
 
 module Utils where
 
-import Control.Concurrent (forkIO, readChan, threadDelay)
+import Control.Concurrent (forkIO, readChan, threadDelay, killThread)
 import Control.Concurrent.Chan (Chan)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Monad (forever, return, void, (>>), (>>=))
@@ -48,8 +48,15 @@ withTimeout timeout generator = newEmptyMVar >>= waitUntil
   where
     generateJust mvar = generator >>= putMVar mvar . Just
     delayNothing mvar = threadDelay timeout >> putMVar mvar Nothing
-    populate mvar = forkIO (generateJust mvar) >> delayNothing mvar
-    waitUntil mvar = forkIO (populate mvar) >> takeMVar mvar
+    populate mvar = do
+      generateId <- forkIO (generateJust mvar)
+      delayNothing mvar
+      killThread generateId
+    waitUntil mvar = do
+      populateId <- forkIO (populate mvar)
+      result <- takeMVar mvar
+      killThread populateId
+      return result
 
 debounce :: USec -> IO a -> IO a
 debounce delay action = action >>= tryMore

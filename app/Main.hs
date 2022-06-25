@@ -1,4 +1,5 @@
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE NoImplicitPrelude #-}
@@ -19,10 +20,9 @@ import Data.Eq (Eq ((==)))
 import Data.Foldable (concatMap, forM_, mapM_, minimum)
 import Data.Function (const, flip, ($), (.))
 import Data.Functor (fmap, (<$>))
-import Data.Int (Int)
 import Data.List (filter, intercalate, map, sort, zip, zipWith, (!!), (++))
 import Data.Map (elems)
-import Data.Maybe (Maybe (Just, Nothing), fromMaybe, mapMaybe)
+import Data.Maybe (Maybe (Just, Nothing), fromJust, fromMaybe, mapMaybe)
 import Data.Ord (Ord ((<=)))
 import Data.Semigroup ((<>))
 import Data.String (String, unwords)
@@ -32,6 +32,7 @@ import Data.Time.Format (defaultTimeLocale, formatTime)
 import Data.Time.LocalTime (ZonedTime, getZonedTime)
 import qualified Data.Vector as Vector
 import GHC.IO.Handle (Handle, hFlush, hPutChar, hPutStr)
+import GHC.Int (Int (I#), Int32 (I32#))
 import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib.Display (openDisplay)
 import Graphics.X11.Xlib.Types (Rectangle)
@@ -41,13 +42,13 @@ import qualified I3IPC.Reply as I3Rpl
 import qualified I3IPC.Subscribe as I3Sub
 import qualified Lemonbar as L
 import Network.Socket (Socket)
-import System.IO (IO, print)
+import System.IO (IO)
 import System.Posix.Types (Fd)
 import System.Process (StdStream (CreatePipe), createProcess, proc, std_in, std_out)
 import TagPartition (partitionByConstructorTagWith)
 import Text.Show (Show, show)
 import Utils (debounce, forkForever, mapWhere, millis, seconds, ($-))
-import Prelude (error, fromIntegral, undefined)
+import Prelude (error, undefined)
 
 -- I3 State
 type Id = Int
@@ -60,20 +61,38 @@ type Focused = Bool
 
 type Urgent = Bool
 
-data Window = Window {windowId :: Id, windowName :: Name, windowFocused :: Focused, windowUrgent :: Urgent} deriving (Show) -- more bools here
+data Window = Window
+  { wndId :: Id,
+    wndName :: Name,
+    wndUrgent :: Urgent
+  }
+  deriving (Show) -- more bools here
 
-data Workspace = Workspace {workspaceIndex :: Index, workspaceName :: Name, workspaecFocused :: Focused, workspaceWindows :: [Window]} deriving (Show)
+data Workspace = Workspace
+  { wspIndex :: Index,
+    wspName :: Name,
+    wspWindows :: [Window]
+  }
+  deriving (Show)
 
 type Position = (Int, Int)
 
-data Output = Output {outputPosition :: Position, outputName :: Name, outputWorkspaces :: [Workspace]} deriving (Show)
+data Output = Output
+  { outPosition :: Position,
+    outName :: Name,
+    outFocused :: Bool,
+    outFocusedWorkspace :: Name,
+    outFocusedWindow :: Maybe Id,
+    outWorkspaces :: [Workspace]
+  }
+  deriving (Show)
 
 instance Eq Output where
-  (==) (Output a _ _) (Output b _ _) = a == b
+  (==) Output {outPosition = a} Output {outPosition = b} = a == b
 
 instance Ord Output where
   -- Outputs are orderable by their XY positions. That's how they are indexed in lemonbar.
-  (<=) (Output a _ _) (Output b _ _) = a <= b
+  (<=) Output {outPosition = a} Output {outPosition = b} = a <= b
 
 newtype I3State = I3State [Output] deriving (Show)
 
@@ -99,22 +118,33 @@ modifyI3State sharedState transform = modifyState sharedState $ \state -> state 
 createSharedState :: IO SharedState
 createSharedState = newMVar $ State Nothing Nothing
 
-printWorkspace :: Workspace -> L.Powerlemon
-printWorkspace (Workspace _ name wspFocused windows) = do
+workspaceColor :: Focused -> Focused -> L.ColorPair
+workspaceColor _ False = L.unfocusedColorPair
+workspaceColor False True = L.semifocusedColorPair
+workspaceColor True True = L.focusedColorPair
+
+windowColor :: Focused -> Focused -> Focused -> Urgent -> L.ColorPair
+windowColor _ _ _ True = L.urgentColorPair
+windowColor _ False _ False = L.unfocusedColorPair
+windowColor _ _ False False = L.unfocusedColorPair
+windowColor False True True False = L.semifocusedColorPair
+windowColor True True True False = L.focusedColorPair
+
+printWorkspace :: Focused -> Name -> Maybe Id -> Workspace -> L.Powerlemon
+printWorkspace outFocused focusedWorkspace focusedWindow (Workspace _ wspName windows) = do
   L.setStyle L.Round
-  L.openSection L.inactiveColorPair
-  L.write $ ' ' : name <> " "
-  forM_ windows $ \(Window _ name winFocused urgent) -> do
-    let colorPair = case (wspFocused, winFocused, urgent) of
-          (_, _, True) -> L.urgentColorPair
-          (_, True, _) -> L.focusedColorPair
-          (_, _, _) -> L.inactiveColorPair
+  let wspFocused = focusedWorkspace == wspName
+  L.openSection $ workspaceColor outFocused wspFocused
+  L.write wspName
+  forM_ windows $ \(Window wndId wndName urgent) -> do
+    let wndFocused = focusedWindow == Just wndId
+        colorPair = windowColor outFocused wspFocused wndFocused urgent
     L.openSection colorPair
-    L.write $ ' ' : L.processWindowTitle name <> " "
+    L.write $ L.processWindowTitle wndName
   L.closeSection
 
 printOutput :: Output -> L.Powerlemon
-printOutput (Output _ _ workspaces) = forM_ workspaces printWorkspace
+printOutput (Output _ _ isFocused focusedWorkspace focusedWindow workspaces) = forM_ workspaces $ printWorkspace isFocused focusedWorkspace focusedWindow
 
 -- I3 Printer
 printI3 :: Index -> I3State -> I3Config -> L.Powerlemon
@@ -159,6 +189,7 @@ forkPrintStateLoop :: [Rectangle] -> BarConfig -> SharedState -> PingChannel -> 
 forkPrintStateLoop screenInfo config sharedState pingChannel outputHandle =
   let monitors = zipWith const [0 ..] screenInfo
    in forkForever $ do
+        -- waitPing pingChannel
         debounce $- millis 10 $- waitPing pingChannel
         withMVar sharedState $ \state -> do
           let printMonitor monitor = printState monitor config state
@@ -169,11 +200,26 @@ forkPrintStateLoop screenInfo config sharedState pingChannel outputHandle =
 mapOutputs :: (Output -> Output) -> I3State -> I3State
 mapOutputs f (I3State outputs) = I3State $ map f outputs
 
-mapWorkspaces :: (Workspace -> Workspace) -> I3State -> I3State
-mapWorkspaces f = mapOutputs $ \(Output pos name workspaces) -> Output pos name $ map f workspaces
+mapWorkspaces :: (Workspace -> Workspace) -> Output -> Output
+mapWorkspaces f output@Output {outWorkspaces = workspaces} = output {outWorkspaces = map f workspaces}
 
-mapWindows :: (Window -> Window) -> I3State -> I3State
-mapWindows f = mapWorkspaces $ \(Workspace index name focused windows) -> Workspace index name focused $ map f windows
+mapWindows :: (Window -> Window) -> Workspace -> Workspace
+mapWindows f wsp@Workspace {wspWindows = windows} = wsp {wspWindows = map f windows}
+
+focusWorkspace :: Maybe I3Rpl.Node -> Maybe I3Rpl.Node -> I3State -> I3State
+focusWorkspace
+  ( Just
+      node@I3Rpl.Node
+        { I3Rpl.node_name = (Text.unpack . fromJust -> wspName),
+          I3Rpl.node_output = (Text.unpack . fromJust -> wndOutputName)
+        }
+    )
+  _ = mapOutputs mapOutput
+    where
+      mapOutput output =
+        if outName output == wndOutputName
+          then output {outFocused = True, outFocusedWorkspace = wspName}
+          else output {outFocused = False}
 
 ignoreWorkspace :: Maybe I3Rpl.Node -> Maybe I3Rpl.Node -> I3State -> I3State
 ignoreWorkspace _ _ x = x
@@ -182,20 +228,39 @@ openWindow :: I3Rpl.Node -> I3State -> I3State
 openWindow _ x = x
 
 closeWindow :: I3Rpl.Node -> I3State -> I3State
-closeWindow node = mapWorkspaces $ \(Workspace index name focused windows) ->
-  Workspace index name focused $ filter ((I3Rpl.node_id node ==) . windowId) windows
+closeWindow node = mapOutputs $
+  mapWorkspaces $ \(Workspace index name windows) ->
+    Workspace index name $ filter ((I3Rpl.node_id node ==) . wndId) windows
 
 focusWindow :: I3Rpl.Node -> I3State -> I3State
-focusWindow node = mapWindows $ \window ->
-  if windowId window == I3Rpl.node_id node
-    then window {windowFocused = True} -- TODO
-    else window
+focusWindow
+  node@I3Rpl.Node
+    { I3Rpl.node_id = nodeId,
+      I3Rpl.node_output = (Text.unpack . fromJust -> wndOutputName)
+    } = mapOutputs mapOutput
+    where
+      mapOutput output =
+        if outName output == wndOutputName
+          then output {outFocusedWindow = Just nodeId}
+          else output
 
 renameWindow :: I3Rpl.Node -> I3State -> I3State
-renameWindow node = mapWindows $ \window ->
-  if windowId window == I3Rpl.node_id node
-    then window {windowName = fromMaybe "undefined" $ Text.unpack <$> I3Rpl.node_name node}
-    else window
+renameWindow
+  node@I3Rpl.Node
+    { I3Rpl.node_id = nodeId,
+      I3Rpl.node_name = (fmap Text.unpack -> Just name),
+      I3Rpl.node_output = (Text.unpack . fromJust -> wndOutputName)
+    } = mapOutputs mapOutput
+    where
+      mapOutput output =
+        if outName output == wndOutputName
+          then mapWorkspaces' output
+          else output
+      mapWorkspaces' = mapWorkspaces $
+        mapWindows $ \window ->
+          if wndId window == nodeId
+            then window {wndName = name}
+            else window
 
 moveWindow :: I3Rpl.Node -> I3State -> I3State
 moveWindow _ x = x
@@ -213,7 +278,7 @@ handleI3Event sharedState pingChannel event = modifyI3State sharedState (transfo
     transformer (I3Evt.Workspace (I3Evt.WorkspaceEvent change current old)) = workspaceChangeHandler change current old
     transformer (I3Evt.Window (I3Evt.WindowEvent change node)) = windowChangeHandler change node
 
-    workspaceChangeHandler I3Evt.Focus = ignoreWorkspace
+    workspaceChangeHandler I3Evt.Focus = focusWorkspace
     workspaceChangeHandler I3Evt.Init = ignoreWorkspace
     workspaceChangeHandler I3Evt.Empty = ignoreWorkspace
     workspaceChangeHandler I3Evt.Urgent = ignoreWorkspace
@@ -232,11 +297,6 @@ handleI3Reply :: SharedState -> PingChannel -> Either String I3Evt.Event -> IO (
 handleI3Reply _ _ (Left err) = error err
 handleI3Reply s c (Right event) = handleI3Event s c event
 
--- handle (Right evt) = case evt of
---   Workspace WorkspaceEvent {wrk_current} -> print wrk_current
---   Window WindowEvent {win_container} -> print win_container
---   _ -> error "No other event types"
-
 initI3PrivateState :: SharedState -> PingChannel -> IO I3PrivateState
 initI3PrivateState sharedState pingChannel = do
   let eventTypes = [I3Sub.Workspace, I3Sub.Window]
@@ -244,24 +304,50 @@ initI3PrivateState sharedState pingChannel = do
   forkIO $ I3.subscribe eventHandler eventTypes
   I3PrivateState <$> connecti3
 
+rectToPosition :: I3Rpl.Rect -> Position
+rectToPosition I3Rpl.Rect {I3Rpl.x = I32# x, I3Rpl.y = I32# y} = (I# x, I# y)
+
 i3NodeToOutputs :: I3Rpl.Node -> [Output]
-i3NodeToOutputs I3Rpl.Node {I3Rpl.node_name = Just "root", I3Rpl.node_type = I3Rpl.RootType, I3Rpl.node_nodes = nodes} = concatMap i3NodeToOutputs nodes
-i3NodeToOutputs I3Rpl.Node {I3Rpl.node_name = Just "__i3", I3Rpl.node_type = I3Rpl.OutputType} = []
-i3NodeToOutputs node@I3Rpl.Node {I3Rpl.node_name = Just (Text.unpack -> name), I3Rpl.node_type = I3Rpl.OutputType, I3Rpl.node_rect = rect} = [Output (fromIntegral $ I3Rpl.x rect, fromIntegral $ I3Rpl.y rect) name $ i3NodeToWorkspaces node]
-i3NodeToOutputs _ = undefined
+i3NodeToOutputs
+  node@I3Rpl.Node
+    { I3Rpl.node_name = (fmap Text.unpack -> nodeName),
+      I3Rpl.node_type = nodeType,
+      I3Rpl.node_rect = nodeRect,
+      I3Rpl.node_nodes = nodes
+    } = case (nodeName, nodeType) of
+    (Just "root", I3Rpl.RootType) -> concatMap i3NodeToOutputs nodes
+    (Just "__i3", I3Rpl.OutputType) -> []
+    (Just name, I3Rpl.OutputType) ->
+      let workspaces@(workspace : _) = i3NodeToWorkspaces node
+          focusedWorkspace = wspName workspace
+       in [Output (rectToPosition nodeRect) name False focusedWorkspace Nothing workspaces] -- TODO
+    _ -> error "Can't convert node type to output"
 
 i3NodeToWorkspaces :: I3Rpl.Node -> [Workspace]
-i3NodeToWorkspaces I3Rpl.Node {I3Rpl.node_type = I3Rpl.OutputType, I3Rpl.node_nodes = (Vector.toList -> nodes)} = concatMap i3NodeToWorkspaces nodes
-i3NodeToWorkspaces I3Rpl.Node {I3Rpl.node_type = I3Rpl.DockAreaType} = []
-i3NodeToWorkspaces I3Rpl.Node {I3Rpl.node_type = I3Rpl.ConType, I3Rpl.node_nodes = (Vector.toList -> nodes)} = concatMap i3NodeToWorkspaces nodes
-i3NodeToWorkspaces node@I3Rpl.Node {I3Rpl.node_name = Just (Text.unpack -> name), I3Rpl.node_type = I3Rpl.WorkspaceType} = [Workspace 0 name False $ i3NodeToWindows node]
-i3NodeToWorkspaces _ = undefined
+i3NodeToWorkspaces
+  node@I3Rpl.Node
+    { I3Rpl.node_name = (fmap Text.unpack -> nodeName),
+      I3Rpl.node_type = nodeType,
+      I3Rpl.node_nodes = (Vector.toList -> nodes)
+    } = case (nodeName, nodeType) of
+    (_, I3Rpl.OutputType) -> concatMap i3NodeToWorkspaces nodes
+    (_, I3Rpl.DockAreaType) -> []
+    (_, I3Rpl.ConType) -> concatMap i3NodeToWorkspaces nodes
+    (Just name, I3Rpl.WorkspaceType) -> [Workspace 0 name $ i3NodeToWindows node]
+    _ -> error "Can't convert node type to workspace"
 
 i3NodeToWindows :: I3Rpl.Node -> [Window]
-i3NodeToWindows I3Rpl.Node {I3Rpl.node_type = I3Rpl.WorkspaceType, I3Rpl.node_nodes = (Vector.toList -> nodes)} = concatMap i3NodeToWindows nodes
-i3NodeToWindows I3Rpl.Node {I3Rpl.node_name = Nothing, I3Rpl.node_type = I3Rpl.ConType, I3Rpl.node_nodes = (Vector.toList -> nodes@(_ : _))} = concatMap i3NodeToWindows nodes
-i3NodeToWindows I3Rpl.Node {I3Rpl.node_id = id, I3Rpl.node_name = Just (Text.unpack -> name), I3Rpl.node_type = I3Rpl.ConType, I3Rpl.node_nodes = (Vector.toList -> [])} = [Window id name False False]
-i3NodeToWindows _ = undefined
+i3NodeToWindows
+  I3Rpl.Node
+    { I3Rpl.node_id = nodeId,
+      I3Rpl.node_name = (fmap Text.unpack -> nodeName),
+      I3Rpl.node_type = nodeType,
+      I3Rpl.node_nodes = (Vector.toList -> nodes)
+    } = case (nodeName, nodeType, nodes) of
+    (_, I3Rpl.WorkspaceType, _) -> concatMap i3NodeToWindows nodes
+    (Nothing, I3Rpl.ConType, _ : _) -> concatMap i3NodeToWindows nodes
+    (Just name, I3Rpl.ConType, []) -> [Window nodeId name False]
+    _ -> error "Can't convert node type to window"
 
 readI3Tree :: Socket -> IO [Output]
 readI3Tree socket = do
@@ -300,7 +386,7 @@ updateTime configs sharedState pingChannel = do
   modifyMVar_ sharedState $ \state -> return $ state {timeState = Just $ TimeState zonedTime}
 
   sendPing pingChannel
-  threadDelay $ seconds 5
+  threadDelay $ seconds 30
 
 forkUpdateStateLoops :: BarConfig -> SharedState -> PingChannel -> IO ()
 forkUpdateStateLoops (BarConfig l c r) sharedState pingChannel =
