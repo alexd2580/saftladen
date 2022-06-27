@@ -25,10 +25,17 @@ executable statbanana
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    Utils, Config, Lemonbar, TagPartition
+    other-modules:
+        Config,
+        State.I3, State.Time, State.Ethernet,
+        Utils.Types, Utils.TagPartition, Utils.Time, Utils.Function, Utils.IO, Utils.MVar, Utils.Monad,
+        Update.I3, Update.Time, Update.Ethernet,
+        Print.Base, Print.I3, Print.Time, Print.Ethernet,
+        Module.I3,
+        Lemonbar
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base ^>=4.14.1.0, i3ipc, sqlite-simple, transformers, text, vector, network, time, process, containers, X11, pretty-show, mtl, data-default
+    build-depends:    base ^>=4.14.1.0, ghc, i3ipc, sqlite-simple, transformers, text, vector, network, time, process, containers, X11, pretty-show, mtl, network-info, aeson
     hs-source-dirs:   app
     default-language: Haskell2010

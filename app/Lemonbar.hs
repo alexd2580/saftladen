@@ -3,22 +3,19 @@
 
 module Lemonbar where
 
-import Control.Applicative ((<|>))
+import Control.Applicative ((<$>), (<|>))
+import Control.Concurrent.MVar (MVar, putMVar, takeMVar)
 import Control.Monad (Monad, forM_, void, (>>), (>>=))
-import Control.Monad.State (State, execState, get, modify, put)
+import Control.Monad.Trans (lift)
+import Control.Monad.Trans.State.Lazy (StateT, execStateT, get, modify, put)
 import Data.Char (toLower)
 import qualified Data.Map as Map
 import Data.Maybe (Maybe (Just, Nothing), fromMaybe)
 import Data.Tuple (fst, snd, swap, uncurry)
 import System.IO (BufferMode (LineBuffering), Handle, hSetBuffering)
 import System.Process (ProcessHandle, StdStream (CreatePipe), createProcess, proc, std_in, std_out)
-import Utils (($-))
+import Utils.Function (($-))
 import Prelude (Bool (False, True), Char, Eq, IO, Int, Show, String, const, filter, foldl, foldr1, map, return, snd, undefined, (!!), ($), (++), (.), (<>), (==))
-
-type Tag = String
-
--- tag :: Tag -> String -> String
--- tag t text = "%{" ++ t ++ '}' : text ++ "%{" ++ t ++ "}"
 
 launchLemonbar :: IO (Handle, Handle, ProcessHandle)
 launchLemonbar =
@@ -245,10 +242,10 @@ neutralColorPair = ("#FFCCCCCC", "#FF008000")
 
 data PWL = PWL {pwlFg :: Color, pwlBg :: Color, pwlDirection :: Direction, pwlStyle :: Style, pwlOutput :: String}
 
-type Powerlemon = State PWL ()
+type Powerlemon = StateT PWL IO ()
 
-toString :: Powerlemon -> String
-toString = pwlOutput . (`execState` PWL defaultFg defaultBg Right None "")
+toString :: Powerlemon -> IO String
+toString = (pwlOutput <$>) . (`execStateT` PWL defaultFg defaultBg Right None "")
 
 setStyle :: Style -> Powerlemon
 setStyle style = modify $ \state -> state {pwlStyle = style}
@@ -265,6 +262,8 @@ flipColors = modify $ \(PWL fg bg dir style output) -> PWL bg fg dir style $ out
 
 write :: String -> Powerlemon
 write input = modify $ \state@PWL {pwlOutput = output} -> state {pwlOutput = output <> input}
+
+type Tag = String
 
 withTag :: Tag -> Powerlemon -> Powerlemon
 withTag tag =
@@ -297,3 +296,9 @@ openSection next@(nextFg, nextBg) = do
 
 closeSection :: Powerlemon
 closeSection = openSection defaultColorPair
+
+withMVar :: MVar a -> (a -> Powerlemon) -> Powerlemon
+withMVar mvar f = do
+  content <- lift $ takeMVar mvar
+  f content
+  lift $ putMVar mvar content

@@ -1,13 +1,14 @@
+{-# LANGUAGE NoImplicitPrelude #-}
 {-# LANGUAGE MagicHash #-}
 
-module TagPartition where
+module Utils.TagPartition where
 
 import Data.Foldable (Foldable, foldr)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (Maybe (Just), fromMaybe)
 import GHC.Exts (Int (I#), dataToTag#)
-import Utils (fold)
+import Utils.Function (fold)
 import Prelude (Eq, Ord, Show, id, mappend, ($))
 
 newtype ConstructorTag a = ConstructorTag Int deriving (Eq, Ord, Show)
