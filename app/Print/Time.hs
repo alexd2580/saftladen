@@ -2,17 +2,17 @@
 
 module Print.Time where
 
-import Control.Concurrent.MVar (MVar)
-import State.Time as Time
-import qualified Lemonbar as L
-import Config (ItemParams)
-import Utils.Types (Index)
+import Control.Monad.Trans (lift)
 import Data.Function (($))
-import Data.Time.Format (formatTime, defaultTimeLocale)
 import Data.Map (findWithDefault)
+import Data.Time.Format (defaultTimeLocale, formatTime)
+import Data.Time.LocalTime (getZonedTime)
+import qualified Lemonbar as L
+import Module.Base (Printer)
 
-printTime :: MVar Time.TimeState -> ItemParams -> Index -> L.Powerlemon
-printTime shared params monitorIndex = L.withMVar shared $ \(Time.TimeState zonedTime) -> do
+printTime :: Printer
+printTime params monitorIndex = do
+  zonedTime <- lift getZonedTime
   L.setStyle L.Common
   L.openSection L.neutralColorPair
   let timeFormat = findWithDefault "Set 'format' parameter for the time item" "format" params

@@ -5,11 +5,10 @@ module Main where
 import Config (BarConfig (BarConfig), ItemConfig (ItemConfig), ItemParams, ItemType (Ethernet, I3, Load, PulseAudio, Storage, Time, Weather), readConfig)
 import Control.Applicative ((<*))
 import Control.Concurrent (ThreadId, forkIO, threadDelay)
-import Control.Monad (forM_, forever, mapM, unless, (>>), (>>=), return)
-import Control.Monad.Fix
-import Data.Foldable (foldr, null)
+import Control.Monad (forM, forM_, forever, mapM, return, unless, (>>), (>>=))
+import Data.Foldable (concatMap, foldr, null)
 import Data.Function (const, flip, ($))
-import Data.List (zipWith)
+import Data.List (map, unzip, zipWith, (++))
 import qualified Data.Map as Map
 import Data.Traversable (sequenceA)
 import Data.Tuple (uncurry)
@@ -18,18 +17,23 @@ import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib.Display (openDisplay)
 import Graphics.X11.Xlib.Types (Rectangle)
 import qualified Lemonbar as L
-import qualified Module.I3 as I3
+import qualified Module.Ethernet
+import qualified Module.I3
+import qualified Module.Time
 import Print.Base (createPingChannel)
 import System.IO (IO)
 import Text.Show (show)
 import Utils.IO (debounce)
 import Utils.Monad (concatMapM)
 import Utils.Time (USec, millis, seconds)
+import Utils.Tuple (uncurry3)
 import Utils.Types (Index)
 import Prelude (undefined)
 
 -- Printer.
-type Printers = Map.Map ItemType (ItemParams -> Index -> L.Powerlemon)
+type Printer = ItemParams -> Index -> L.Powerlemon
+
+type Printers = Map.Map ItemType Printer
 
 printItem :: Printers -> Index -> ItemConfig -> L.Powerlemon
 printItem printers monitorIndex (ItemConfig itemType params) = (printers Map.! itemType) params monitorIndex
@@ -59,8 +63,8 @@ printer printers barConfig pong outputHandle screenInfo =
 -- Updaters.
 type Updaters = [IO ()]
 
-timedUpdateLoop :: IO () -> USec -> IO () -> IO () -> IO ()
-timedUpdateLoop ping itemDelay init update = init >> forever (update >> ping >> threadDelay itemDelay)
+timedUpdateLoop :: IO () -> IO () -> IO () -> USec -> IO ()
+timedUpdateLoop ping init update itemDelay = init >> forever (update >> ping >> threadDelay itemDelay)
 
 -- Main.
 type PartitionedConfig = Map.Map ItemType [ItemParams]
@@ -69,22 +73,22 @@ partitionConfig :: BarConfig -> PartitionedConfig
 partitionConfig (BarConfig l c r) = foldr (flip $ foldr insertIntoMap) Map.empty [l, c, r]
   where
     insertIntoMap :: ItemConfig -> Map.Map ItemType [ItemParams] -> Map.Map ItemType [ItemParams]
-    insertIntoMap = undefined
+    insertIntoMap (ItemConfig itemType params) = Map.insertWith (++) itemType [params]
 
 initializeModules :: IO () -> [(ItemType, [ItemParams])] -> IO (Printers, Updaters)
-initializeModules ping = init (Map.empty, [])
-  where init accum [] = return accum
-        init accum (x:xs) = initOne accum x >>= (`init` xs)
-        initOne (p, u) (I3, params) = do
-          (printer, initAndUpdaters) <- I3.buildModule params
-
-    -- TODOOOOOOOOOO
-          let p' = Map.insert p I3 printer
-              o
-                = timedUpdateLoop ping (seconds 300)hhhhhhhhhhhh
-
-          return (p', u')
-
+initializeModules ping paramsByItemType = do
+  modules <- forM paramsByItemType $ uncurry buildModule
+  let printers :: [Printer]
+      initAndUpdaters :: [[(IO (), IO (), USec)]]
+      (printers, initAndUpdaters) = unzip modules
+      printers' = Map.fromList $ zipWith (\ p (t, _) -> (t, p)) printers paramsByItemType
+      updaters' = concatMap (map (uncurry3 $ timedUpdateLoop ping)) initAndUpdaters
+  return (printers', updaters')
+  where
+    buildModule :: ItemType -> [ItemParams] -> IO (Printer, [(IO (), IO (), USec)])
+    buildModule I3 = Module.I3.buildModule
+    buildModule Time = Module.Time.buildModule
+    buildModule Ethernet = Module.Ethernet.buildModule
 
 -- forkUpdater :: IO () -> ItemType -> [ItemParams] -> IO [ThreadId]
 -- forkUpdater ping I3 params = do
@@ -110,7 +114,7 @@ main = do
   (lemonbarInput, lemonbarOutput, processHandle) <- L.launchLemonbar
   (ping, pong) <- createPingChannel
 
-  (printers, updaters) <- initializeModules $ Map.toList $ partitionConfig config
+  (printers, updaters) <- initializeModules ping $ Map.toList $ partitionConfig config
   printerId <- forkIO $ printer printers config pong lemonbarOutput screenInfo
   updaterIds <- mapM forkIO updaters
 
