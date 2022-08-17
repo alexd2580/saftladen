@@ -13,20 +13,20 @@ import qualified Data.Map as Map
 import Data.Maybe (Maybe (Just, Nothing), fromMaybe)
 import Data.Tuple (fst, snd, swap, uncurry)
 import System.IO (BufferMode (LineBuffering), Handle, hSetBuffering)
-import System.Process (ProcessHandle, StdStream (CreatePipe), createProcess, proc, std_in, std_out)
+import System.Process (ProcessHandle, StdStream (CreatePipe), createProcess, proc, std_in, std_out, std_err)
 import Utils.Function (($-))
 import Prelude (Bool (False, True), Char, Eq, IO, Int, Show, String, const, filter, foldl, foldr1, map, return, snd, undefined, (!!), ($), (++), (.), (<>), (==))
 
-launchLemonbar :: IO (Handle, Handle, ProcessHandle)
+launchLemonbar :: IO (Handle, Handle, Handle, ProcessHandle)
 launchLemonbar =
   let textFont = "UbuntuMono Nerd Font:size=12"
       lemonbarArgs = ["-f", textFont, "-a", "30", "-u", "-2"]
       rawProc = proc "lemonbar" lemonbarArgs
-      procWithPipes = rawProc {std_in = CreatePipe, std_out = CreatePipe}
+      procWithPipes = rawProc {std_in = CreatePipe, std_out = CreatePipe, std_err = CreatePipe}
    in do
-        (Just stdIn, Just stdOut, _, pHandle) <- createProcess procWithPipes
+        (Just stdIn, Just stdOut, Just stdErr, pHandle) <- createProcess procWithPipes
         hSetBuffering stdIn LineBuffering
-        return (stdIn, stdOut, pHandle)
+        return (stdIn, stdOut, stdErr, pHandle)
 
 data Style = None | Common | Round | Fire | Data | Backslash | Slash | Lego
 

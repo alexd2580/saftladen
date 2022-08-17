@@ -11,7 +11,7 @@ import Data.Bool (Bool (False))
 import Data.Function (const, ($), (.))
 import Data.List (map, zip)
 import qualified Lemonbar as L
-import Module.Base (Initializer, Printer, Updater)
+import Module.Base (Printer, UpdaterBody, UpdaterInit)
 import qualified Network.Info as Net
 import Print.Ethernet (printEthernet)
 import State.Ethernet (EthernetState (EthernetState), initEthernetState)
@@ -23,7 +23,7 @@ import Utils.Types (Index)
 updateEthernet :: MVar EthernetState -> [ItemParams] -> IO ()
 updateEthernet sharedState _ = recomputeState_ sharedState $ EthernetState . map (,False) <$> Net.getNetworkInterfaces
 
-buildModule :: [ItemParams] -> IO (Printer, [(Initializer, Updater, USec)])
+buildModule :: [ItemParams] -> IO (Printer, [(UpdaterInit, UpdaterBody, USec)])
 buildModule params = do
   shared <- initEthernetState
 

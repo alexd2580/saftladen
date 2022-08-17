@@ -9,6 +9,5 @@ import Utils.Types (Index)
 
 type Printer = ItemParams -> Index -> Powerlemon
 
-type Initializer = IO ()
-
-type Updater = IO ()
+type UpdaterInit = IO ()
+type UpdaterBody = IO ()

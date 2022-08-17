@@ -44,17 +44,32 @@ import State.I3
     wspName,
     wspWindows,
   )
-import System.IO (IO)
+import System.IO (IO, print)
 import Utils.MVar (modifyState_, recomputeState_)
 
 mapOutputs :: (Output -> Output) -> I3State -> I3State
 mapOutputs f (I3State outputs) = I3State $ map f outputs
 
-mapWorkspaces :: (Workspace -> Workspace) -> Output -> Output
-mapWorkspaces f output@Output {outWorkspaces = workspaces} = output {outWorkspaces = map f workspaces}
+class HasWorkspaces x where
+  mapWorkspaces :: (Workspace -> Workspace) -> x -> x
 
-mapWindows :: (Window -> Window) -> Workspace -> Workspace
-mapWindows f wsp@Workspace {wspWindows = windows} = wsp {wspWindows = map f windows}
+instance HasWorkspaces I3State where
+  mapWorkspaces f = mapOutputs $ mapWorkspaces f
+
+instance HasWorkspaces Output where
+  mapWorkspaces f output@Output {outWorkspaces = workspaces} = output {outWorkspaces = map f workspaces}
+
+class HasWindows x where
+  mapWindows :: (Window -> Window) -> x -> x
+
+instance HasWindows I3State where
+  mapWindows f = mapOutputs $ mapWindows f
+
+instance HasWindows Output where
+  mapWindows f = mapWorkspaces $ mapWindows f
+
+instance HasWindows Workspace where
+  mapWindows f wsp@Workspace {wspWindows = windows} = wsp {wspWindows = map f windows}
 
 focusWorkspace :: Maybe Rpl.Node -> Maybe Rpl.Node -> I3State -> I3State
 focusWorkspace
@@ -75,11 +90,10 @@ ignoreWorkspace :: Maybe Rpl.Node -> Maybe Rpl.Node -> I3State -> I3State
 ignoreWorkspace _ _ x = x
 
 openWindow :: Rpl.Node -> I3State -> I3State
-openWindow _ x = x
+openWindow node = undefined
 
 closeWindow :: Rpl.Node -> I3State -> I3State
-closeWindow node = mapOutputs $
-  mapWorkspaces $ \(Workspace index name windows) ->
+closeWindow node = mapWorkspaces $ \(Workspace index name windows) ->
     Workspace index name $ filter ((Rpl.node_id node ==) . wndId) windows
 
 focusWindow :: Rpl.Node -> I3State -> I3State
@@ -106,8 +120,7 @@ renameWindow
         if outName output == wndOutputName
           then mapWorkspaces' output
           else output
-      mapWorkspaces' = mapWorkspaces $
-        mapWindows $ \window ->
+      mapWorkspaces' = mapWindows $ \window ->
           if wndId window == nodeId
             then window {wndName = name}
             else window
@@ -200,7 +213,7 @@ initUpdateI3 :: MVar UpdateI3Data -> IO ()
 initUpdateI3 mvar = Ipc.connecti3 >>= putMVar mvar
 
 updateI3 :: MVar UpdateI3Data -> MVar I3State -> [ItemParams] -> IO ()
-updateI3 privateSharedState sharedState _ = recomputeState_ sharedState computeShared
+updateI3 privateSharedState sharedState _ = print "i3" >> recomputeState_ sharedState computeShared
   where
     computeShared = withMVar privateSharedState $ (I3State <$>) . readI3Tree
 
@@ -216,7 +229,8 @@ initUpdateI3Event mvar = do
   putMVar mvar socket
 
 updateI3Event :: MVar UpdateI3EventData -> MVar I3State -> [ItemParams] -> IO ()
-updateI3Event privateSharedState sharedState _ =
+updateI3Event privateSharedState sharedState _ = do
+  print "i3event"
   withMVar privateSharedState $
     Ipc.receiveEvent >=> \case
       (Left err) -> error err

@@ -5,14 +5,14 @@ module Module.I3 where
 import Config (ItemParams)
 import Control.Concurrent.MVar (newEmptyMVar)
 import Control.Monad (return)
-import Module.Base (Initializer, Printer, Updater)
+import Module.Base (UpdaterBody, Printer, UpdaterInit)
 import Print.I3 (printI3)
 import State.I3 (initI3State)
 import System.IO (IO)
 import Update.I3 (initUpdateI3, initUpdateI3Event, updateI3, updateI3Event)
 import Utils.Time (USec, seconds)
 
-buildModule :: [ItemParams] -> IO (Printer, [(Initializer, Updater, USec)])
+buildModule :: [ItemParams] -> IO (Printer, [(UpdaterInit, UpdaterBody, USec)])
 buildModule params = do
   shared <- initI3State
   private <- newEmptyMVar

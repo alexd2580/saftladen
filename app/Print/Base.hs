@@ -8,5 +8,8 @@ import System.IO (IO)
 
 type PingChannel = Chan ()
 
-createPingChannel :: IO (IO (), IO ())
+type PingIO = IO ()
+type PongIO = IO ()
+
+createPingChannel :: IO (PongIO, PingIO)
 createPingChannel = (\chan -> (readChan chan, writeChan chan ())) <$> newChan

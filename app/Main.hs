@@ -5,11 +5,16 @@ module Main where
 import Config (BarConfig (BarConfig), ItemConfig (ItemConfig), ItemParams, ItemType (Ethernet, I3, Load, PulseAudio, Storage, Time, Weather), readConfig)
 import Control.Applicative ((<*))
 import Control.Concurrent (ThreadId, forkIO, threadDelay)
+import Control.Exception (SomeException, catch)
 import Control.Monad (forM, forM_, forever, mapM, return, unless, (>>), (>>=))
-import Data.Foldable (concatMap, foldr, null)
+import Data.Bool (Bool)
+import Data.Eq ((==))
+import Data.Foldable (concat, concatMap, foldr, null)
 import Data.Function (const, flip, ($))
-import Data.List (map, unzip, zipWith, (++))
+import Data.Functor ((<$>))
+import Data.List (head, map, unzip, zipWith, (++))
 import qualified Data.Map as Map
+import Data.String (String)
 import Data.Traversable (sequenceA)
 import Data.Tuple (uncurry)
 import GHC.IO.Handle (Handle, hPutStr)
@@ -17,11 +22,13 @@ import Graphics.X11.Xinerama (getScreenInfo)
 import Graphics.X11.Xlib.Display (openDisplay)
 import Graphics.X11.Xlib.Types (Rectangle)
 import qualified Lemonbar as L
+import Module.Base (UpdaterBody, UpdaterInit)
 import qualified Module.Ethernet
 import qualified Module.I3
 import qualified Module.Time
-import Print.Base (createPingChannel)
-import System.IO (IO)
+import Print.Base (PingIO, PongIO, createPingChannel)
+import System.Environment (getArgs)
+import System.IO (IO, hGetLine, print, putStrLn, stdout)
 import Text.Show (show)
 import Utils.IO (debounce)
 import Utils.Monad (concatMapM)
@@ -51,8 +58,8 @@ printMonitor printers (BarConfig l c r) monitorIndex = do
     printMany tag sources = unless (null sources) $ L.withTag tag $ forM_ sources printOne
     printOne = printItem printers monitorIndex
 
-printer :: Printers -> BarConfig -> IO () -> Handle -> [Rectangle] -> IO ()
-printer printers barConfig pong outputHandle screenInfo =
+render :: Printers -> BarConfig -> PongIO -> Handle -> [Rectangle] -> IO ()
+render printers barConfig pong outputHandle screenInfo =
   let monitors = zipWith const [0 ..] screenInfo
    in forever $ do
         millis 10 `debounce` pong
@@ -63,7 +70,7 @@ printer printers barConfig pong outputHandle screenInfo =
 -- Updaters.
 type Updaters = [IO ()]
 
-timedUpdateLoop :: IO () -> IO () -> IO () -> USec -> IO ()
+timedUpdateLoop :: PingIO -> UpdaterInit -> UpdaterBody -> USec -> IO ()
 timedUpdateLoop ping init update itemDelay = init >> forever (update >> ping >> threadDelay itemDelay)
 
 -- Main.
@@ -75,48 +82,61 @@ partitionConfig (BarConfig l c r) = foldr (flip $ foldr insertIntoMap) Map.empty
     insertIntoMap :: ItemConfig -> Map.Map ItemType [ItemParams] -> Map.Map ItemType [ItemParams]
     insertIntoMap (ItemConfig itemType params) = Map.insertWith (++) itemType [params]
 
-initializeModules :: IO () -> [(ItemType, [ItemParams])] -> IO (Printers, Updaters)
-initializeModules ping paramsByItemType = do
-  modules <- forM paramsByItemType $ uncurry buildModule
-  let printers :: [Printer]
-      initAndUpdaters :: [[(IO (), IO (), USec)]]
-      (printers, initAndUpdaters) = unzip modules
-      printers' = Map.fromList $ zipWith (\ p (t, _) -> (t, p)) printers paramsByItemType
-      updaters' = concatMap (map (uncurry3 $ timedUpdateLoop ping)) initAndUpdaters
-  return (printers', updaters')
-  where
-    buildModule :: ItemType -> [ItemParams] -> IO (Printer, [(IO (), IO (), USec)])
-    buildModule I3 = Module.I3.buildModule
-    buildModule Time = Module.Time.buildModule
-    buildModule Ethernet = Module.Ethernet.buildModule
+buildModule :: ItemType -> [ItemParams] -> IO (Printer, [(UpdaterInit, UpdaterBody, USec)])
+buildModule I3 = Module.I3.buildModule
+buildModule Time = Module.Time.buildModule
+buildModule Ethernet = Module.Ethernet.buildModule
 
--- forkUpdater :: IO () -> ItemType -> [ItemParams] -> IO [ThreadId]
--- forkUpdater ping I3 params = do
---   (printer, updaters) <- I3.buildModule
---   mapM forkTimedUpdateLoop ping
---   forkTimedUpdateLoop ping UI3.initUpdateI3
---   where
---     init = undefined
+linkModule :: PingIO -> ItemType -> [ItemParams] -> IO ((ItemType, Printer), Updaters)
+linkModule ping itemType itemParamsList = do
+  (printerFunction, updaterParts) <- buildModule itemType itemParamsList
+  let printer :: (ItemType, Printer)
+      printer = (itemType, printerFunction)
+      updaters :: [IO ()]
+      updaters = map (uncurry3 $ timedUpdateLoop ping) updaterParts
+  return (printer, updaters)
 
--- forkUpdater ping I3 = seconds 300
--- forkUpdater ping Time = seconds 30
--- forkUpdater ping Ethernet = seconds 15
--- forkUpdater ping Weather = seconds 600
--- forkUpdater ping PulseAudio = seconds 30
--- forkUpdater ping Load = seconds 3
--- forkUpdater ping Storage = seconds 60
+initializeModules :: PingIO -> BarConfig -> IO (Printers, Updaters)
+initializeModules ping config = do
+  let byItemType = Map.toList $ partitionConfig config
+  (printers, updaters) <- unzip <$> forM byItemType (uncurry $ linkModule ping)
+  return (Map.fromList printers, concat updaters)
 
-main :: IO ()
-main = do
+-- I3 = seconds 300
+-- Time = seconds 30
+-- Ethernet = seconds 15
+-- Weather = seconds 600
+-- PulseAudio = seconds 30
+-- Load = seconds 3
+-- Storage = seconds 60
+
+forkPrinterAndUpdaters :: BarConfig -> Handle -> [Rectangle] -> IO [ThreadId]
+forkPrinterAndUpdaters config handle screenInfo = do
+  (pong, ping) <- createPingChannel
+  (printers, updaterIOs) <- initializeModules ping config
+  let printerIO = render printers config pong handle screenInfo
+  mapM forkIO $ printerIO : updaterIOs
+
+runMain :: [String] -> IO ()
+runMain args = do
   display <- openDisplay ":0"
   screenInfo <- getScreenInfo display
   config <- readConfig
-  (lemonbarInput, lemonbarOutput, processHandle) <- L.launchLemonbar
-  (ping, pong) <- createPingChannel
 
-  (printers, updaters) <- initializeModules ping $ Map.toList $ partitionConfig config
-  printerId <- forkIO $ printer printers config pong lemonbarOutput screenInfo
-  updaterIds <- mapM forkIO updaters
+  (lemonbarInput, lemonbarOutput, lemonbarError, processHandle) <- L.launchLemonbar
+  let barHandle = case args of
+        ("dry" : _) -> stdout
+        _ -> lemonbarInput
+  threadIds <- forkPrinterAndUpdaters config barHandle screenInfo
 
   -- Replace this with last shell command.
-  forever $ threadDelay $ seconds 100
+  forever $ do
+    hGetLine lemonbarOutput >>= putStrLn
+    hGetLine lemonbarError >>= putStrLn
+    threadDelay $ seconds 1
+
+main :: IO ()
+main = catch (getArgs >>= runMain) handleAll
+  where
+    handleAll :: SomeException -> IO ()
+    handleAll x = print x
