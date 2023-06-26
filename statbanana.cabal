@@ -26,17 +26,31 @@ executable statbanana
 
     -- Modules included in this executable, other than Main.
     other-modules:
-        Config,
-        State.I3, State.Ethernet,
-        Utils.Types, Utils.TagPartition, Utils.Time, Utils.Function, Utils.IO, Utils.MVar, Utils.Monad, Utils.Tuple
-        Update.I3,
-        Print.Base, Print.I3, Print.Time, Print.Ethernet,
-        Module.Base, Module.I3, Module.Time, Module.Ethernet,
+        Prelude, Base,
+        State.I3, State.Ethernet, State.Weather, State.Load
+        Utils.Types, Utils.Color, Utils.Time, Utils.Function, Utils.IO, Utils.MVar, Utils.Monad, Utils.Tuple, Utils.BiMultiMap,
+        Update.I3, Update.Ethernet, Update.Weather, Update.Load, Utils.WindowTitle, Utils.List,
+        Print.I3, Print.Time, Print.Ethernet, Print.Weather, Print.Load
         Lemonbar
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
-    build-depends:    base ^>=4.14.1.0, ghc, i3ipc, sqlite-simple, transformers, text, vector, network, time, process, containers, X11, pretty-show, mtl, network-info, aeson
+    build-depends:
+        base, ghc,
+        mtl, transformers, containers,
+        text, vector, time, pretty-show,
+        network, process, network-info, http-conduit, directory,
+        i3ipc, X11, aeson
     hs-source-dirs:   app
     default-language: Haskell2010
-    ghc-options: -XNoImplicitPrelude -Wmissing-import-lists
+    default-extensions: NoImplicitPrelude
+    ghc-options:
+        -Weverything
+        -Wno-safe
+        -Wno-unsafe
+        -Wno-missing-safe-haskell-mode
+        -Wno-inferred-safe-imports
+        -Wno-unused-packages
+        -Wno-missing-import-lists
+        -Wno-partial-fields
+        -Wno-all-missed-specialisations

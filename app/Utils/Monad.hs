@@ -1,5 +1,7 @@
+{-# LANGUAGE Safe #-}
 {-# LANGUAGE NoImplicitPrelude #-}
-module Utils.Monad where
+
+module Utils.Monad ((^>), (>^), concatMapM) where
 
 import Control.Applicative ((<*))
 import Control.Monad (Monad, mapM)

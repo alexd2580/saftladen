@@ -1,14 +1,17 @@
+{-# LANGUAGE Safe #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Utils.Time where
+module Utils.Time (USec, minutes, seconds, millis) where
 
-import Data.Int (Int)
-import Prelude ((*))
+import Prelude
 
 type USec = Int
 
+minutes :: Int -> USec
+minutes = seconds . (* 60)
+
 seconds :: Int -> USec
-seconds = (* 1000000)
+seconds = millis . (* 1000)
 
 millis :: Int -> USec
 millis = (* 1000)

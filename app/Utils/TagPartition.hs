@@ -1,17 +1,18 @@
-{-# LANGUAGE NoImplicitPrelude #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE NoImplicitPrelude #-}
 
-module Utils.TagPartition where
+module Utils.TagPartition (getTag, partitionByConstructorTagWith, partitionByConstructorTag) where
 
-import Data.Foldable (Foldable, foldr)
 import Data.Map (Map)
-import qualified Data.Map as Map
-import Data.Maybe (Maybe (Just), fromMaybe)
-import GHC.Exts (Int (I#), dataToTag#)
+import Data.Map qualified as Map
+import GHC.Exts (dataToTag#)
+import GHC.Int (Int (I#))
 import Utils.Function (fold)
-import Prelude (Eq, Ord, Show, id, mappend, ($))
+import Prelude
 
-newtype ConstructorTag a = ConstructorTag Int deriving (Eq, Ord, Show)
+newtype ConstructorTag a = ConstructorTag Int deriving stock (Eq, Ord, Show)
 
 getTag :: a -> ConstructorTag a
 getTag a = ConstructorTag $ I# (dataToTag# a)

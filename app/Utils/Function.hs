@@ -1,23 +1,25 @@
+{-# LANGUAGE Safe #-}
 {-# LANGUAGE NoImplicitPrelude #-}
 
-module Utils.Function where
+module Utils.Function (($-), (.-), then_, cond, guard) where
 
-import Data.Bool (Bool, otherwise)
-import Data.Foldable (Foldable, foldr)
-import Data.List (map)
-import Data.Monoid (Monoid, mempty)
+import Prelude
 
 infixl 0 $-
 
 ($-) :: (a -> b) -> a -> b
 ($-) f = f
 
-mapWhere :: (x -> Bool) -> (x -> x) -> [x] -> [x]
-mapWhere predicate transform = map forEach
-  where
-    forEach x
-      | predicate x = transform x
-      | otherwise = x
+(.-) :: (a -> b) -> (b -> c) -> a -> c
+(.-) = flip (.)
 
-fold :: (Monoid m, Foldable f) => (x -> m -> m) -> f x -> m
-fold combine = foldr combine mempty
+then_ :: Monad m => (a -> m b) -> (b -> c) -> a -> m c
+then_ amb bc a = amb a <&> bc
+
+cond :: (a -> Bool) -> (a -> a) -> (a -> a) -> a -> a
+cond pred ifF elseF value
+  | pred value = ifF value
+  | otherwise = elseF value
+
+guard :: (a -> Bool) -> (a -> a) -> a -> a
+guard pred transform = cond pred transform id
