@@ -8,13 +8,13 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::lemonbar::{with_center, with_display, with_left, with_right};
+use crate::lemonbar::{Alignment, LemonbarWriter};
 
 mod error;
 mod i3;
 mod lemonbar;
 mod time;
-use std::{cmp::Ordering, io::Write, process::ChildStdin};
+use std::cmp::Ordering;
 
 type ItemMessage = ();
 
@@ -33,13 +33,13 @@ async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
 
 #[async_trait::async_trait]
 trait StateItem {
-    async fn print(&self, stream: ChildStdin, output: &str) -> Result<ChildStdin, Error>;
+    async fn print(&self, writer: &mut LemonbarWriter, output: &str) -> Result<(), Error>;
 
-    async fn run(
-        &mut self,
+    fn start_coroutine(
+        &self,
         notify_sender: mpsc::Sender<()>,
         message_receiver: broadcast::Receiver<ItemMessage>,
-    ) -> Result<JoinHandle<()>, Error>;
+    ) -> JoinHandle<()>;
 }
 
 struct StateItems {
@@ -59,36 +59,8 @@ async fn init_state_items() -> Result<StateItems, Error> {
     })
 }
 
-async fn init_state_item_threads(
-    state_items: &mut StateItems,
-    rerender_sender: &mpsc::Sender<()>,
-    message_sender: &broadcast::Sender<()>,
-) -> (Vec<JoinHandle<()>>, bool) {
-    let mut threads = Vec::new();
-    for item in state_items
-        .left
-        .iter_mut()
-        .chain(state_items.center.iter_mut())
-        .chain(state_items.right.iter_mut())
-    {
-        let maybe_thread = item
-            .run(rerender_sender.clone(), message_sender.subscribe())
-            .await;
-
-        match maybe_thread {
-            Err(err) => {
-                error!("{err}");
-                return (threads, false);
-            }
-            Ok(thread) => threads.push(thread),
-        }
-    }
-
-    (threads, true)
-}
-
 async fn main_loop(
-    mut stream: ChildStdin,
+    mut writer: LemonbarWriter,
     mut rerender_receiver: mpsc::Receiver<()>,
     state_items: &StateItems,
     displays: &Vec<(String, (isize, isize))>,
@@ -105,30 +77,21 @@ async fn main_loop(
                 let state_items = &state_items;
 
                 for (index, display) in displays.iter().enumerate() {
-                    stream = with_display(stream, index, |mut stream| async move {
-                        stream = with_left(stream, |mut stream| async move {
-                            for item in &state_items.left {
-                                stream = item.print(stream, &display.0).await?;
-                            }
-                            Ok(stream)
-                        }).await?;
-                        stream = with_center(stream, |mut stream| async move {
-                            for item in &state_items.center {
-                                stream = item.print(stream, &display.0).await?;
-                            }
-                            Ok(stream)
-                        }).await?;
-                        stream = with_right(stream, |mut stream| async move {
-                            for item in &state_items.right {
-                                stream = item.print(stream, &display.0).await?;
-                            }
-                            Ok(stream)
-                        }).await?;
-                        Ok(stream)
-                    }).await?;
+                    writer.set_display(Some(index));
+                    writer.set_alignment(Alignment::Left);
+                    for item in &state_items.left {
+                        item.print(&mut writer, &display.0).await?;
+                    }
+                    writer.set_alignment(Alignment::Center);
+                    for item in &state_items.center {
+                        item.print(&mut writer, &display.0).await?;
+                    }
+                    writer.set_alignment(Alignment::Right);
+                    for item in &state_items.right {
+                        item.print(&mut writer, &display.0).await?;
+                    }
                 }
-                write!(stream, "\n")?;
-                stream.flush()?;
+                writer.flush();
             },
         }
     }
@@ -142,15 +105,19 @@ async fn run_main() -> Result<(), Error> {
     let (rerender_sender, rerender_receiver) = mpsc::channel(32);
 
     let mut state_items = init_state_items().await?;
-    let (threads, success) =
-        init_state_item_threads(&mut state_items, &rerender_sender, &message_sender).await;
+    let threads = state_items
+        .left
+        .iter_mut()
+        .chain(state_items.center.iter_mut())
+        .chain(state_items.right.iter_mut())
+        .map(|item| item.start_coroutine(rerender_sender.clone(), message_sender.subscribe()))
+        .collect::<Vec<_>>();
 
-    if success {
-        let lemonbar = spawn_lemonbar()?;
-        let stream = lemonbar.stdin.unwrap();
-        let res = main_loop(stream, rerender_receiver, &state_items, &displays).await;
-        print_error(res);
-    }
+    let lemonbar = spawn_lemonbar()?;
+    let stream = lemonbar.stdin.unwrap();
+    let writer = LemonbarWriter::new(stream);
+    let res = main_loop(writer, rerender_receiver, &state_items, &displays).await;
+    print_error(res);
 
     let _ = message_sender
         .send(())
