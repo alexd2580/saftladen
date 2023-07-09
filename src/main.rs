@@ -1,5 +1,6 @@
-use lemonbar::spawn_lemonbar;
+use bar::SectionWriter;
 use log::{debug, error};
+use saftbar::bar::{Alignment, Bar};
 
 use error::{print_error, Error};
 use tokio::{
@@ -8,12 +9,13 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::lemonbar::{Alignment, LemonbarWriter};
-
+mod bar;
 mod error;
 mod i3;
-mod lemonbar;
+mod pulseaudio;
+mod system;
 mod time;
+mod weather;
 use std::cmp::Ordering;
 
 type ItemMessage = ();
@@ -33,7 +35,7 @@ async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
 
 #[async_trait::async_trait]
 trait StateItem {
-    async fn print(&self, writer: &mut LemonbarWriter, output: &str) -> Result<(), Error>;
+    async fn print(&self, writer: &mut SectionWriter, output: &str) -> Result<(), Error>;
 
     fn start_coroutine(
         &self,
@@ -44,23 +46,29 @@ trait StateItem {
 
 struct StateItems {
     left: Vec<Box<dyn StateItem>>,
-    center: Vec<Box<dyn StateItem>>,
     right: Vec<Box<dyn StateItem>>,
 }
 
 async fn init_state_items() -> Result<StateItems, Error> {
     let i3 = i3::I3::new().await?;
-    let time = time::Time::new()?;
+    let weather = weather::Weather::new();
+    let pulseaudio = pulseaudio::Pulseaudio::new();
+    let system = system::System::new();
+    let time = time::Time::new();
 
     Ok(StateItems {
         left: vec![Box::new(i3)],
-        center: vec![],
-        right: vec![Box::new(time)],
+        right: vec![
+            Box::new(weather),
+            Box::new(pulseaudio),
+            Box::new(system),
+            Box::new(time),
+        ],
     })
 }
 
 async fn main_loop(
-    mut writer: LemonbarWriter,
+    bar: &mut Bar,
     mut rerender_receiver: mpsc::Receiver<()>,
     state_items: &StateItems,
     displays: &Vec<(String, (isize, isize))>,
@@ -76,22 +84,21 @@ async fn main_loop(
 
                 let state_items = &state_items;
 
+                bar.clear_monitors();
                 for (index, display) in displays.iter().enumerate() {
-                    writer.set_display(Some(index));
-                    writer.set_alignment(Alignment::Left);
+                    let mut writer = SectionWriter::new();
                     for item in &state_items.left {
                         item.print(&mut writer, &display.0).await?;
                     }
-                    writer.set_alignment(Alignment::Center);
-                    for item in &state_items.center {
-                        item.print(&mut writer, &display.0).await?;
-                    }
-                    writer.set_alignment(Alignment::Right);
+                    bar.render_string(index, Alignment::Left, &writer.unwrap());
+
+                    let mut writer = SectionWriter::new();
                     for item in &state_items.right {
                         item.print(&mut writer, &display.0).await?;
                     }
+                    bar.render_string(index, Alignment::Right, &writer.unwrap());
                 }
-                writer.flush();
+                bar.blit();
             },
         }
     }
@@ -108,15 +115,12 @@ async fn run_main() -> Result<(), Error> {
     let threads = state_items
         .left
         .iter_mut()
-        .chain(state_items.center.iter_mut())
         .chain(state_items.right.iter_mut())
         .map(|item| item.start_coroutine(rerender_sender.clone(), message_sender.subscribe()))
         .collect::<Vec<_>>();
 
-    let lemonbar = spawn_lemonbar()?;
-    let stream = lemonbar.stdin.unwrap();
-    let writer = LemonbarWriter::new(stream);
-    let res = main_loop(writer, rerender_receiver, &state_items, &displays).await;
+    let mut bar = Bar::new();
+    let res = main_loop(&mut bar, rerender_receiver, &state_items, &displays).await;
     print_error(res);
 
     let _ = message_sender

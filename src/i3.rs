@@ -3,6 +3,7 @@ use async_i3ipc::{
     reply::{self, Node},
 };
 use log::error;
+use saftbar::xft::RGBA;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -13,12 +14,14 @@ use tokio::{
 };
 
 use crate::{
+    bar::{Direction, SectionWriter, Style, ACTIVE, INACTIVE, SEMIACTIVE, URGENT},
     error::Error,
-    lemonbar::{Direction, LemonbarWriter, Style, ACTIVE, INACTIVE, SEMIACTIVE, URGENT},
     ItemMessage, StateItem,
 };
 
-const NUMBERS: [&str; 6] = ["", "󰬺", "󰬻", "󰬼", "󰬽", "󰬾"];
+// TODO visible but INACTIVE
+// TODO workspaces without windows are not focused.
+// TODO more icons?
 
 const BROWSERS: [(&str, &str); 2] = [("chrom", ""), ("firefox", "")];
 const SITES: [(&str, &str); 11] = [
@@ -28,9 +31,9 @@ const SITES: [(&str, &str); 11] = [
     ("gitlab", ""),
     ("stack overflow", ""),
     ("youtube", ""),
-    ("jira", ""),
+    ("jira", "󰌃"),
     ("paypal", ""),
-    ("gmail", ""),
+    ("gmail", "󰊫"),
     ("amazon", ""),
     ("google", ""),
 ];
@@ -48,12 +51,13 @@ const LANGUAGES: [(&str, &str); 13] = [
     (".json", "ﬥ"),
     (".jsx", ""),
     (".js", ""),
-    (".rs", ""),
+    (".rs", ""),
     ("docker", ""),
 ];
 
-const PROGRAMS: [(&str, &str); 15] = [
-    ("vlc", "嗢"),
+const PROGRAMS: [(&str, &str); 17] = [
+    ("vlc", "󰕼"),
+    ("gimp", ""),
     ("mumble", ""),
     ("volume control", ""),
     ("telegram", ""),
@@ -63,9 +67,10 @@ const PROGRAMS: [(&str, &str); 15] = [
     ("man", ""),
     ("docker", ""),
     ("npm", ""),
+    ("discord", "󰙯"),
     ("irssi", ""),
     ("gdb", ""),
-    ("cargo", ""),
+    ("cargo", ""),
     ("zsh", ""),
     (": ~", ""),
 ];
@@ -99,7 +104,7 @@ impl Window {
                         return format!("{browser_icon}{site_icon}");
                     }
                 }
-                return browser_icon.to_owned();
+                return browser_icon.to_string();
             }
         }
 
@@ -110,17 +115,22 @@ impl Window {
                         return format!("{editor_icon}{lang_icon}");
                     }
                 }
-                return editor_icon.to_owned();
+                return editor_icon.to_string();
             }
         }
 
         for (prgm, prgm_icon) in PROGRAMS {
             if title.contains(prgm) {
-                return prgm_icon.to_owned();
+                return prgm_icon.to_string();
             }
         }
 
-        self.title.clone()
+        if title.len() > 20 {
+            self.title[..18].to_string()
+        } else {
+            self.title.to_string()
+        }
+
     }
 }
 
@@ -226,16 +236,16 @@ impl State {
         Ok(State(outputs))
     }
 
-    fn choose_coloring(urgent: bool, active: bool, focused: bool) -> &'static [&'static str; 2] {
+    fn choose_coloring(urgent: bool, active: bool, focused: bool) -> (RGBA, RGBA) {
         match (urgent, active, focused) {
-            (true, _, _) => &URGENT,
-            (false, true, _) => &ACTIVE,
-            (false, false, true) => &SEMIACTIVE,
-            (false, false, false) => &INACTIVE,
+            (true, _, _) => URGENT,
+            (false, true, _) => ACTIVE,
+            (false, false, true) => SEMIACTIVE,
+            (false, false, false) => INACTIVE,
         }
     }
 
-    pub async fn print(&self, writer: &mut LemonbarWriter, output: &str) -> Result<(), Error> {
+    pub async fn print(&self, writer: &mut SectionWriter, output: &str) -> Result<(), Error> {
         let output = self
             .0
             .get(output)
@@ -248,17 +258,19 @@ impl State {
             let workspace_coloring =
                 Self::choose_coloring(workspace.urgent, workspace.focused, false);
             writer.open_(workspace_coloring);
-            writer.write(&format!(" {} ", NUMBERS[*num as usize]));
+            writer.write(format!(" {} ", num));
 
             let windows = &workspace.windows;
             if windows.is_empty() {
             } else if windows.len() == 1 {
                 let first = windows.first_key_value().unwrap();
-                writer.write(&first.1.short_title());
+                writer.write(first.1.short_title());
             } else {
                 for window in windows.values() {
-                    writer.split();
-                    writer.write(&format!(" {} ", window.short_title()));
+                    let window_coloring =
+                        Self::choose_coloring(window.urgent, window.focused, false);
+                    writer.open_(window_coloring);
+                    writer.write(format!(" {}", window.short_title()));
                 }
             }
 
@@ -361,7 +373,7 @@ async fn i3_coroutine(
 
 #[async_trait::async_trait]
 impl StateItem for I3 {
-    async fn print(&self, writer: &mut LemonbarWriter, output: &str) -> Result<(), Error> {
+    async fn print(&self, writer: &mut SectionWriter, output: &str) -> Result<(), Error> {
         Ok(self.get_state().await.print(writer, output).await?)
     }
 

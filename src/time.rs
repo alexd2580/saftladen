@@ -6,8 +6,8 @@ use tokio::{
 };
 
 use crate::{
+    bar::{Direction, SectionWriter, Style, ACTIVE},
     error::Error,
-    lemonbar::{Direction, LemonbarWriter, Style, ACTIVE},
     ItemMessage, StateItem,
 };
 
@@ -16,20 +16,21 @@ pub struct Time {
 }
 
 impl Time {
-    pub fn new() -> Result<Self, Error> {
-        let format = "%a %F %R".to_owned();
-        Ok(Time { format })
+    pub fn new() -> Self {
+        Self {
+            format: "%a %F %R".to_owned(),
+        }
     }
 }
 
 #[async_trait::async_trait]
 impl StateItem for Time {
-    async fn print(&self, writer: &mut LemonbarWriter, _output: &str) -> Result<(), Error> {
+    async fn print(&self, writer: &mut SectionWriter, _output: &str) -> Result<(), Error> {
         let now = Local::now();
         writer.set_style(Style::Powerline);
         writer.set_direction(Direction::Left);
-        writer.open_(&ACTIVE);
-        writer.write(&format!(" {} ", now.format(&self.format)));
+        writer.open_(ACTIVE);
+        writer.write(format!(" {} ", now.format(&self.format)));
         writer.close();
         Ok(())
     }
@@ -66,48 +67,48 @@ async fn time_coroutine(
     }
 }
 
-        // {
-        //     "item": "Weather",
-        //     "icon": "\ufa8f",
-        //     "cooldown": 1800
-        // },
-        // {
-        //     "item": "PulseAudio",
-        //     "cooldown": 5
-        // },
-        // {
-        //     "item": "Net",
-        //     "icon": "\uf6ff",
-        //     "cooldown": 10,
-        //     "interface": "enp39s0",
-        //     "type": "ethernet",
-        //     "display": "IPv4",
-        //     "connection check cooldown": 30
-        // },
-        // {
-        //     "item": "Load",
-        //     "icon": "\ue266",
-        //     "cooldown": 5,
-        //     "button": "terminator -e htop &",
-        //     "temperature_files": [
-        //         "/sys/class/hwmon/hwmon1/temp0_input",
-        //         "/sys/class/hwmon/hwmon1/temp2_input",
-        //         "/sys/class/hwmon/hwmon1/temp3_input"
-        //     ]
-        // },
-        // {
-        //     "item": "Space",
-        //     "cooldown": 30,
-        //     "mount_points": [
-        //         {
-        //             "file": "/",
-        //             "icon": "\uf0a0"
-        //         }
-        //     ]
-        // },
-        // {
-        //     "item": "Date",
-        //     "icon": "\uf017",
-        //     "cooldown": 30,
-        //     "format": "%Y-%m-%d %H:%M"
-        // }
+// {
+//     "item": "Weather",
+//     "icon": "\ufa8f",
+//     "cooldown": 1800
+// },
+// {
+//     "item": "PulseAudio",
+//     "cooldown": 5
+// },
+// {
+//     "item": "Net",
+//     "icon": "\uf6ff",
+//     "cooldown": 10,
+//     "interface": "enp39s0",
+//     "type": "ethernet",
+//     "display": "IPv4",
+//     "connection check cooldown": 30
+// },
+// {
+//     "item": "Load",
+//     "icon": "\ue266",
+//     "cooldown": 5,
+//     "button": "terminator -e htop &",
+//     "temperature_files": [
+//         "/sys/class/hwmon/hwmon1/temp0_input",
+//         "/sys/class/hwmon/hwmon1/temp2_input",
+//         "/sys/class/hwmon/hwmon1/temp3_input"
+//     ]
+// },
+// {
+//     "item": "Space",
+//     "cooldown": 30,
+//     "mount_points": [
+//         {
+//             "file": "/",
+//             "icon": "\uf0a0"
+//         }
+//     ]
+// },
+// {
+//     "item": "Date",
+//     "icon": "\uf017",
+//     "cooldown": 30,
+//     "format": "%Y-%m-%d %H:%M"
+// }
