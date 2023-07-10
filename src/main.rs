@@ -1,8 +1,9 @@
+use std::{cmp::Ordering, fs::File};
+
 use bar::SectionWriter;
+use error::Error;
 use log::{debug, error};
 use saftbar::bar::{Alignment, Bar};
-
-use error::Error;
 use state_item::{Notifyer, Receiver, StateItem};
 use tokio::{
     signal,
@@ -17,7 +18,6 @@ mod state_item;
 mod system;
 mod time;
 mod weather;
-use std::cmp::Ordering;
 
 async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
     let mut displays = i3::I3::displays().await?;
@@ -126,9 +126,41 @@ async fn run_main() -> Result<(), Error> {
     Ok(())
 }
 
+fn init_logger() {
+    let mut loggers: Vec<Box<dyn simplelog::SharedLogger>> = Vec::new();
+
+    loggers.push(simplelog::TermLogger::new(
+        log::LevelFilter::Debug,
+        Default::default(),
+        simplelog::TerminalMode::Mixed,
+        simplelog::ColorChoice::Auto,
+    ));
+
+    let time = chrono::Local::now();
+    let log_file_name = time.format("/var/log/saftladen/%FT%T.log").to_string();
+    let log_file = File::create(&log_file_name);
+    let (log_file, log_file_err) = match log_file {
+        Ok(log_file) => (Some(log_file), None),
+        Err(log_file_err) => (None, Some(log_file_err)),
+    };
+    if let Some(log_file) = log_file {
+        loggers.push(simplelog::WriteLogger::new(
+            log::LevelFilter::Debug,
+            Default::default(),
+            log_file,
+        ));
+    }
+
+    simplelog::CombinedLogger::init(loggers).unwrap();
+
+    if let Some(err) = log_file_err {
+        error!("Failed to initialize file logger at {log_file_name}: {err}");
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    simple_logger::init_with_level(log::Level::Debug).unwrap();
+    init_logger();
     if let Err(err) = run_main().await {
         error!("{err}");
     }
