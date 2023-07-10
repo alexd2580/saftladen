@@ -2,23 +2,22 @@ use bar::SectionWriter;
 use log::{debug, error};
 use saftbar::bar::{Alignment, Bar};
 
-use error::{print_error, Error};
+use error::Error;
+use state_item::{Notifyer, Receiver, StateItem};
 use tokio::{
     signal,
     sync::{broadcast, mpsc},
-    task::JoinHandle,
 };
 
 mod bar;
 mod error;
 mod i3;
 mod pulseaudio;
+mod state_item;
 mod system;
 mod time;
 mod weather;
 use std::cmp::Ordering;
-
-type ItemMessage = ();
 
 async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
     let mut displays = i3::I3::displays().await?;
@@ -33,30 +32,19 @@ async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
     Ok(displays)
 }
 
-#[async_trait::async_trait]
-trait StateItem {
-    async fn print(&self, writer: &mut SectionWriter, output: &str) -> Result<(), Error>;
-
-    fn start_coroutine(
-        &self,
-        notify_sender: mpsc::Sender<()>,
-        message_receiver: broadcast::Receiver<ItemMessage>,
-    ) -> JoinHandle<()>;
-}
-
 struct StateItems {
     left: Vec<Box<dyn StateItem>>,
     right: Vec<Box<dyn StateItem>>,
 }
 
-async fn init_state_items() -> Result<StateItems, Error> {
-    let i3 = i3::I3::new().await?;
+fn init_state_items() -> StateItems {
+    let i3 = i3::I3::new();
     let weather = weather::Weather::new();
     let pulseaudio = pulseaudio::Pulseaudio::new();
     let system = system::System::new();
     let time = time::Time::new();
 
-    Ok(StateItems {
+    StateItems {
         left: vec![Box::new(i3)],
         right: vec![
             Box::new(weather),
@@ -64,14 +52,14 @@ async fn init_state_items() -> Result<StateItems, Error> {
             Box::new(system),
             Box::new(time),
         ],
-    })
+    }
 }
 
 async fn main_loop(
     bar: &mut Bar,
     mut rerender_receiver: mpsc::Receiver<()>,
     state_items: &StateItems,
-    displays: &Vec<(String, (isize, isize))>,
+    displays: &[(String, (isize, isize))],
 ) -> Result<(), Error> {
     loop {
         tokio::select! {
@@ -111,17 +99,24 @@ async fn run_main() -> Result<(), Error> {
     let (message_sender, _message_receiver) = broadcast::channel(32);
     let (rerender_sender, rerender_receiver) = mpsc::channel(32);
 
-    let mut state_items = init_state_items().await?;
+    let mut state_items = init_state_items();
     let threads = state_items
         .left
         .iter_mut()
         .chain(state_items.right.iter_mut())
-        .map(|item| item.start_coroutine(rerender_sender.clone(), message_sender.subscribe()))
+        .map(|item| {
+            item.start_coroutine(
+                Notifyer(rerender_sender.clone()),
+                Receiver(message_sender.subscribe()),
+            )
+        })
         .collect::<Vec<_>>();
 
     let mut bar = Bar::new();
     let res = main_loop(&mut bar, rerender_receiver, &state_items, &displays).await;
-    print_error(res);
+    if let Err(err) = res {
+        error!("{err}");
+    }
 
     let _ = message_sender
         .send(())

@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use log::error;
-
 #[derive(Debug)]
 pub enum Error {
     Local(String),
@@ -36,12 +34,5 @@ impl From<tokio::task::JoinError> for Error {
 impl From<pulsectl::ControllerError> for Error {
     fn from(value: pulsectl::ControllerError) -> Self {
         Self::Pulsectl(value)
-    }
-}
-
-pub fn print_error(res: Result<(), Error>) {
-    match res {
-        Err(err) => error!("{err}"),
-        Ok(()) => {}
     }
 }

@@ -1,16 +1,12 @@
 use std::{sync::Arc, time};
 
-use log::error;
 use sysinfo::{CpuExt, SystemExt};
-use tokio::{
-    sync::{broadcast, mpsc, Mutex},
-    task::JoinHandle,
-};
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    bar::{font_color, mix_colors, Direction, SectionWriter, Style, CRITICAL, DARK_GREEN, RED},
+    bar::{mix_colors, Direction, SectionWriter, Style, DARK_GREEN, RED, TOO_RED},
     error::Error,
-    ItemMessage, StateItem,
+    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
 };
 
 struct SystemData {
@@ -29,9 +25,9 @@ impl SystemData {
         let mem_refresh_time = time::Instant::now();
 
         Self {
-            sysinfo,
             cpu_refresh_time,
             mem_refresh_time,
+            sysinfo,
         }
     }
 
@@ -50,6 +46,17 @@ impl SystemData {
         }
 
         updated
+    }
+
+    #[allow(clippy::cast_precision_loss)]
+    fn ram_usage(&self) -> (f32, String, String) {
+        let sysinfo = &self.sysinfo;
+        let total_ram = sysinfo.total_memory();
+        let available_ram = sysinfo.available_memory();
+        let used_ram = total_ram - available_ram;
+        let usage = 100f32 * used_ram as f32 / total_ram as f32;
+
+        (usage, format_bytes(used_ram), format_bytes(total_ram))
     }
 }
 
@@ -91,46 +98,29 @@ impl StateItem for System {
             let global_cpu = data.sysinfo.global_cpu_info();
             let usage = global_cpu.cpu_usage();
             let bg_color = mix_colors(usage, 80f32, 100f32, DARK_GREEN, RED);
-            let fg_color = font_color(bg_color);
-            writer.open(bg_color, fg_color);
+            writer.open_bg(bg_color);
             writer.write(format!(" {usage:.0}% "));
 
-            let total_ram = data.sysinfo.total_memory();
-            let available_ram = data.sysinfo.available_memory();
-            let used_ram = total_ram - available_ram;
-            let usage = 100f32 * used_ram as f32 / total_ram as f32;
+            let (usage, used_ram, total_ram) = data.ram_usage();
             let bg_color = mix_colors(usage, 75f32, 100f32, DARK_GREEN, RED);
-            let fg_color = font_color(bg_color);
-            writer.open(bg_color, fg_color);
-            writer.write(format!("󰍛 {usage:.0}% ({})", format_bytes(total_ram)));
+            writer.open_bg(bg_color);
+            writer.write(format!("󰍛 {usage:.0}% ({used_ram}/{total_ram})"));
 
             writer.close();
         } else {
-            writer.open_(CRITICAL);
+            writer.open_bg(TOO_RED);
             writer.write("".to_string());
             writer.close();
         }
         Ok(())
     }
 
-    fn start_coroutine(
-        &self,
-        notify_sender: mpsc::Sender<()>,
-        message_receiver: broadcast::Receiver<ItemMessage>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(system_coroutine(
-            self.0.clone(),
-            notify_sender,
-            message_receiver,
-        ))
+    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
+        tokio::spawn(system_coroutine(self.0.clone(), notifyer, receiver))
     }
 }
 
-async fn system_coroutine(
-    state: SharedData,
-    notify_sender: mpsc::Sender<()>,
-    mut message_receiver: broadcast::Receiver<ItemMessage>,
-) {
+async fn system_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
     loop {
         {
             let mut state_lock = state.lock().await;
@@ -140,25 +130,18 @@ async fn system_coroutine(
             } else {
                 (*state_lock).as_mut().unwrap().update()
             };
-            if updated {
-                match notify_sender.send(()).await {
-                    Err(err) => {
-                        error!("{err}");
-                        return;
-                    }
-                    Ok(()) => {}
-                }
+            if updated && !notifyer.send().await {
+                break;
             }
         }
 
         tokio::select! {
-            message = message_receiver.recv() => {
-                match message {
-                    Err(err) => { error!("{err}"); break; }
-                    Ok(()) => break,
+            message = receiver.recv() => {
+                if message.is_some() {
+                    break;
                 }
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
+            _ = wait_seconds(5) => {}
 
         }
     }

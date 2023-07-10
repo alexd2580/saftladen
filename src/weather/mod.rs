@@ -1,103 +1,19 @@
 use std::sync::Arc;
 
 use chrono::{Local, Timelike};
-use log::{error, warn};
 use saftbar::xft::RGBA;
-use serde::Deserialize;
-use tokio::{
-    sync::{broadcast, mpsc, Mutex},
-    task::JoinHandle,
-};
+use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    bar::{
-        font_color, mix_colors_multi, Direction, SectionWriter, Style, BLUE, DARK_GREEN, RED, WARN,
-    },
+    bar::{mix_colors_multi, Direction, SectionWriter, Style, BLUE, DARK_GREEN, RED},
     error::Error,
-    ItemMessage, StateItem,
+    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
+    weather::wttrin::get_weather_data,
 };
 
-#[derive(Debug)]
-struct WeatherData {
-    temp: i32,
-    condition_code: u32,
-    condition: String,
+use self::wttrin::WeatherData;
 
-    midnight_to_sunrise: chrono::Duration,
-    midnight_to_sunset: chrono::Duration,
-}
-
-#[derive(Deserialize, Debug)]
-struct WttrInFormatJ1CurrentConditionWeatherDesc {
-    value: String,
-}
-
-#[derive(Deserialize, Debug)]
-#[allow(non_snake_case)]
-struct WttrInFormatJ1CurrentCondition {
-    temp_C: String,
-    weatherCode: String,
-    weatherDesc: Vec<WttrInFormatJ1CurrentConditionWeatherDesc>,
-}
-
-#[derive(Deserialize, Debug)]
-struct WttrInFormatJ1WeatherAstronomy {
-    sunrise: String,
-    sunset: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct WttrInFormatJ1Weather {
-    astronomy: Vec<WttrInFormatJ1WeatherAstronomy>,
-}
-
-#[derive(Deserialize, Debug)]
-struct WttrInFormatJ1 {
-    current_condition: Vec<WttrInFormatJ1CurrentCondition>,
-    weather: Vec<WttrInFormatJ1Weather>,
-}
-
-fn am_pm_to_duration_since_midnight(text: &str) -> chrono::Duration {
-    let bytes = text.as_bytes();
-    // The ascii byte value of '0' is 48.
-    let mut hours = 10 * (bytes[0] as i64 - 48) + (bytes[1] as i64 - 48);
-    let minutes = 10 * (bytes[3] as i64 - 48) + (bytes[4] as i64 - 48);
-
-    // The ascii byte value of 'P' is 80.
-    if bytes[6] == 80 {
-        hours += 12;
-    }
-
-    chrono::Duration::minutes(hours * 60 + minutes)
-}
-
-fn handle_response(data: &WttrInFormatJ1) -> WeatherData {
-    let current_condition = &data.current_condition[0];
-    let astronomy = &data.weather[0].astronomy[0];
-    WeatherData {
-        temp: current_condition.temp_C.parse().unwrap(),
-        condition_code: current_condition.weatherCode.parse().unwrap(),
-        condition: current_condition.weatherDesc[0].value.clone(),
-        midnight_to_sunrise: am_pm_to_duration_since_midnight(&astronomy.sunrise),
-        midnight_to_sunset: am_pm_to_duration_since_midnight(&astronomy.sunset),
-    }
-}
-
-async fn get_weather_data() -> Option<WeatherData> {
-    match reqwest::get("https://wttr.in?format=j1").await {
-        Ok(response) => match response.json::<WttrInFormatJ1>().await {
-            Ok(data) => Some(handle_response(&data)),
-            Err(err) => {
-                warn!("{err}");
-                None
-            }
-        },
-        Err(err) => {
-            warn!("{err}");
-            None
-        }
-    }
-}
+mod wttrin;
 
 type SharedData = Arc<Mutex<Option<WeatherData>>>;
 pub struct Weather(SharedData);
@@ -200,6 +116,7 @@ pub const HOT: RGBA = RED;
 
 #[async_trait::async_trait]
 impl StateItem for Weather {
+    #[allow(clippy::cast_precision_loss)]
     async fn print(&self, writer: &mut SectionWriter, _output: &str) -> Result<(), Error> {
         writer.set_style(Style::Powerline);
         writer.set_direction(Direction::Left);
@@ -216,11 +133,10 @@ impl StateItem for Weather {
                 NORMAL,
                 HOT,
             );
-            let font_color = font_color(temp_color);
-            writer.open(temp_color, font_color);
+            writer.open_bg(temp_color);
 
             let since_midnight =
-                chrono::Duration::seconds(Local::now().num_seconds_from_midnight() as i64);
+                chrono::Duration::seconds(i64::from(Local::now().num_seconds_from_midnight()));
             let is_day = data.midnight_to_sunrise <= since_midnight
                 && since_midnight < data.midnight_to_sunset;
             let weather_icon = weather_icon(data.condition_code, is_day);
@@ -247,57 +163,39 @@ impl StateItem for Weather {
             let hours = duration.num_hours();
             let minutes = (duration - chrono::Duration::hours(hours)).num_minutes();
 
-            writer.write(format!("{icon} in {:0>2}:{:0>2} ", hours, minutes));
+            writer.write(format!("{icon} in {hours:0>2}:{minutes:0>2} "));
             writer.close();
         } else {
-            writer.open_(WARN);
+            writer.open_bg(RED);
             writer.write("󰅤".to_string());
             writer.close();
         }
         Ok(())
     }
 
-    fn start_coroutine(
-        &self,
-        notify_sender: mpsc::Sender<()>,
-        message_receiver: broadcast::Receiver<ItemMessage>,
-    ) -> JoinHandle<()> {
-        tokio::spawn(weather_coroutine(
-            self.0.clone(),
-            notify_sender,
-            message_receiver,
-        ))
+    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
+        tokio::spawn(weather_coroutine(self.0.clone(), notifyer, receiver))
     }
 }
 
-async fn weather_coroutine(
-    state: SharedData,
-    notify_sender: mpsc::Sender<()>,
-    mut message_receiver: broadcast::Receiver<ItemMessage>,
-) {
+async fn weather_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
     loop {
         {
             let new_state = get_weather_data().await;
             let mut state_lock = state.lock().await;
             *state_lock = new_state;
-            match notify_sender.send(()).await {
-                Err(err) => {
-                    error!("{err}");
-                    return;
-                }
-                Ok(()) => {}
+            if !notifyer.send().await {
+                break;
             }
         }
 
         tokio::select! {
-            message = message_receiver.recv() => {
-                match message {
-                    Err(err) => { error!("{err}"); break; }
-                    Ok(()) => break,
+            message = receiver.recv() => {
+                if message.is_some() {
+                    break;
                 }
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_secs(1800)) => {}
-
+            _ = wait_seconds(1800) => {}
         }
     }
 }

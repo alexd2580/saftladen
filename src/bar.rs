@@ -26,22 +26,21 @@ pub const BLACK: RGBA = (0, 0, 0, 255);
 pub const RED: RGBA = (200, 20, 20, 255);
 pub const TOO_RED: RGBA = (255, 0, 0, 255);
 pub const DARK_GREEN: RGBA = (0, 128, 0, 255);
+#[allow(dead_code)]
 pub const INFO_YELLOW: RGBA = (205, 205, 0, 255);
+#[allow(dead_code)]
 pub const GREEN: RGBA = (20, 200, 20, 255);
 pub const BLUE: RGBA = (20, 20, 200, 255);
 
 pub const WHITE_ON_BLACK: (RGBA, RGBA) = (BLACK, WHITE);
-pub const INACTIVE: (RGBA, RGBA) = (DARKEST_GRAY, GRAY);
-pub const SEMIACTIVE: (RGBA, RGBA) = (DARK_GRAY, LIGHT_GRAY);
-pub const ACTIVE: (RGBA, RGBA) = (BLUE, LIGHT_GRAY);
-pub const URGENT: (RGBA, RGBA) = (RED, LIGHT_GRAY);
 
-pub const GOOD: (RGBA, RGBA) = (GREEN, BLACK);
-pub const NEUTRAL: (RGBA, RGBA) = (DARK_GREEN, LIGHT_GRAY);
-pub const INFO: (RGBA, RGBA) = (INFO_YELLOW, BLACK);
-pub const WARN: (RGBA, RGBA) = (RED, LIGHT_GRAY);
-pub const CRITICAL: (RGBA, RGBA) = (TOO_RED, WHITE);
+// pub const GOOD: (RGBA, RGBA) = (GREEN, BLACK);
+// pub const NEUTRAL: (RGBA, RGBA) = (DARK_GREEN, LIGHT_GRAY);
+// pub const INFO: (RGBA, RGBA) = (INFO_YELLOW, BLACK);
+// pub const WARN: (RGBA, RGBA) = (RED, LIGHT_GRAY);
+// pub const CRITICAL: (RGBA, RGBA) = (TOO_RED, WHITE);
 
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 pub fn mix_colors(value: f32, min: f32, max: f32, min_color: RGBA, max_color: RGBA) -> RGBA {
     if value <= min {
         return min_color;
@@ -56,13 +55,14 @@ pub fn mix_colors(value: f32, min: f32, max: f32, min_color: RGBA, max_color: RG
     let (r1, g1, b1, a1) = min_color;
     let (r2, g2, b2, a2) = max_color;
     (
-        (r1 as f32 * alpha + r2 as f32 * inv_alpha) as u8,
-        (g1 as f32 * alpha + g2 as f32 * inv_alpha) as u8,
-        (b1 as f32 * alpha + b2 as f32 * inv_alpha) as u8,
-        (a1 as f32 * alpha + a2 as f32 * inv_alpha) as u8,
+        (f32::from(r1) * alpha + f32::from(r2) * inv_alpha) as u8,
+        (f32::from(g1) * alpha + f32::from(g2) * inv_alpha) as u8,
+        (f32::from(b1) * alpha + f32::from(b2) * inv_alpha) as u8,
+        (f32::from(a1) * alpha + f32::from(a2) * inv_alpha) as u8,
     )
 }
 
+#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 pub fn mix_colors_multi(
     value: f32,
     min: f32,
@@ -80,10 +80,10 @@ pub fn mix_colors_multi(
         let (r1, g1, b1, a1) = min_color;
         let (r2, g2, b2, a2) = green_color;
         (
-            (r1 as f32 * inv_alpha + r2 as f32 * alpha) as u8,
-            (g1 as f32 * inv_alpha + g2 as f32 * alpha) as u8,
-            (b1 as f32 * inv_alpha + b2 as f32 * alpha) as u8,
-            (a1 as f32 * inv_alpha + a2 as f32 * alpha) as u8,
+            (f32::from(r1) * inv_alpha + f32::from(r2) * alpha) as u8,
+            (f32::from(g1) * inv_alpha + f32::from(g2) * alpha) as u8,
+            (f32::from(b1) * inv_alpha + f32::from(b2) * alpha) as u8,
+            (f32::from(a1) * inv_alpha + f32::from(a2) * alpha) as u8,
         )
     } else {
         let alpha = ((value - max_green) / (max - max_green)).clamp(0f32, 1f32);
@@ -92,16 +92,16 @@ pub fn mix_colors_multi(
         let (r1, g1, b1, a1) = green_color;
         let (r2, g2, b2, a2) = max_color;
         (
-            (r1 as f32 * inv_alpha + r2 as f32 * alpha) as u8,
-            (g1 as f32 * inv_alpha + g2 as f32 * alpha) as u8,
-            (b1 as f32 * inv_alpha + b2 as f32 * alpha) as u8,
-            (a1 as f32 * inv_alpha + a2 as f32 * alpha) as u8,
+            (f32::from(r1) * inv_alpha + f32::from(r2) * alpha) as u8,
+            (f32::from(g1) * inv_alpha + f32::from(g2) * alpha) as u8,
+            (f32::from(b1) * inv_alpha + f32::from(b2) * alpha) as u8,
+            (f32::from(a1) * inv_alpha + f32::from(a2) * alpha) as u8,
         )
     }
 }
 
-pub fn font_color(bg: RGBA) -> RGBA {
-    let luminance = 0.299 * bg.0 as f32 + 0.587 * bg.1 as f32 + 0.114 * bg.2 as f32;
+fn font_color(bg: RGBA) -> RGBA {
+    let luminance = 0.299 * f32::from(bg.0) + 0.587 * f32::from(bg.1) + 0.114 * f32::from(bg.2);
     if luminance > 128.0 {
         BLACK
     } else {
@@ -185,6 +185,10 @@ impl SectionWriter {
 
     pub fn open(&mut self, next_bg: RGBA, next_fg: RGBA) {
         self.separate(next_bg, next_fg);
+    }
+
+    pub fn open_bg(&mut self, next_bg: RGBA) {
+        self.separate(next_bg, font_color(next_bg));
     }
 
     pub fn split(&mut self) {
