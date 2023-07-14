@@ -23,6 +23,7 @@ impl SystemData {
         let cpu_refresh_time = time::Instant::now();
         sysinfo.refresh_memory();
         let mem_refresh_time = time::Instant::now();
+        sysinfo.refresh_components_list();
 
         Self {
             cpu_refresh_time,
@@ -43,6 +44,10 @@ impl SystemData {
             self.mem_refresh_time = time::Instant::now();
             self.sysinfo.refresh_memory();
             updated = true;
+        }
+
+        for component in self.sysinfo.components() {
+            println!("{:#?}", component);
         }
 
         updated
