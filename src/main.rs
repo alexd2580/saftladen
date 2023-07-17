@@ -64,6 +64,9 @@ async fn main_loop(
 
     loop {
         tokio::select! {
+            event = bar.next_x_event() => {
+                debug!("{event:#?}");
+            }
             _ = signal::ctrl_c() => {
                 debug!("Received CTRL+C, terminating");
                 break;

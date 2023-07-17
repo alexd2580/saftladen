@@ -1208,8 +1208,9 @@ checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
 [[package]]
 name = "saftbar"
 version = "0.1.0"
-source = "git+https://github.com/alexd2580/saftbar.git#59fc91229a83cae4ec9729a380a0b57697e64473"
+source = "git+https://github.com/alexd2580/saftbar.git#23f5d6c6bdb4c30ad872d7e6ef4461712958aa23"
 dependencies = [
+ "tokio",
  "unicode-segmentation",
  "x11",
  "xcb",
