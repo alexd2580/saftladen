@@ -60,7 +60,7 @@ async fn main_loop(
     state_items: &StateItems,
 ) -> Result<(), Error> {
     let displays = get_displays().await?;
-    let mut bar = Bar::new()?;
+    let mut bar = Bar::new();
 
     loop {
         tokio::select! {
@@ -71,21 +71,21 @@ async fn main_loop(
             _ = rerender_receiver.recv() => {
                 let state_items = &state_items;
 
-                bar.clear_monitors()?;
+                bar.clear_monitors();
                 for (index, display) in displays.iter().enumerate() {
                     let mut writer = SectionWriter::new();
                     for item in &state_items.left {
                         item.print(&mut writer, &display.0).await?;
                     }
-                    bar.render_string(index, Alignment::Left, &writer.unwrap())?;
+                    bar.render_string(index, Alignment::Left, &writer.unwrap());
 
                     let mut writer = SectionWriter::new();
                     for item in &state_items.right {
                         item.print(&mut writer, &display.0).await?;
                     }
-                    bar.render_string(index, Alignment::Right, &writer.unwrap())?;
+                    bar.render_string(index, Alignment::Right, &writer.unwrap());
                 }
-                bar.blit()?;
+                bar.blit();
             },
         }
     }

@@ -142,7 +142,7 @@ impl StateItem for Weather {
             let weather_icon = weather_icon(data.condition_code, is_day);
 
             writer.write(format!(
-                "{} {} {}°C ",
+                "{} {} {} ",
                 weather_icon, data.condition, data.temp
             ));
             writer.split();

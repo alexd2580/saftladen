@@ -47,7 +47,7 @@ impl SystemData {
         }
 
         for component in self.sysinfo.components() {
-            println!("{:#?}", component);
+            println!("{component:#?}");
         }
 
         updated
