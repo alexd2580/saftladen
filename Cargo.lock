@@ -1208,7 +1208,7 @@ checksum = "1ad4cc8da4ef723ed60bced201181d83791ad433213d8c24efffda1eec85d741"
 [[package]]
 name = "saftbar"
 version = "0.1.0"
-source = "git+https://github.com/alexd2580/saftbar.git#08f111e3036d0deda173b6305d078e21c56dfc0c"
+source = "git+https://github.com/alexd2580/saftbar.git#59fc91229a83cae4ec9729a380a0b57697e64473"
 dependencies = [
  "unicode-segmentation",
  "x11",
@@ -1245,9 +1245,9 @@ dependencies = [
 
 [[package]]
 name = "scopeguard"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d29ab0c6d3fc0ee92fe66e2d99f700eab17a8d57d1c1d3b748380fb20baa78cd"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "security-framework"
