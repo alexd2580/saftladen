@@ -2,7 +2,7 @@ use std::{cmp::Ordering, fs::File};
 
 use bar::SectionWriter;
 use error::Error;
-use log::{debug, error};
+use log::{debug, error, info};
 use saftbar::bar::{Alignment, Bar};
 use state_item::{
     new_item_action_channel, new_main_action_channel, ItemAction, ItemActionSender,
@@ -31,6 +31,8 @@ async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
             xcomp
         }
     });
+
+    debug!("Detected displays: {displays:#?}");
     Ok(displays)
 }
 
@@ -62,6 +64,7 @@ async fn redraw(
     displays: &[(String, (isize, isize))],
     bar: &mut Bar,
 ) -> Result<(), Error> {
+    debug!("Redraw");
     bar.clear_monitors();
     for (index, display) in displays.iter().enumerate() {
         let mut writer = SectionWriter::new();
@@ -77,6 +80,7 @@ async fn redraw(
         bar.render_string(index, Alignment::Right, &writer.unwrap());
     }
     bar.blit();
+    debug!("Redraw done");
     Ok(())
 }
 
@@ -101,8 +105,12 @@ async fn main_loop(
                 match message {
                     None => {}
                     Some(MainAction::Reinit) => {
+                        debug!("Reinitializing bar");
                         displays = get_displays().await?;
-                        bar = Bar::new();
+                        debug!("new_bar");
+                        let new_bar = Bar::new();
+                        debug!("drop_old_bar");
+                        bar = new_bar;
                         if !item_action_sender.enqueue(ItemAction::Update) {
                             let msg = "Failed to enqueue item update action".to_owned();
                             return Err(Error::Local(msg));
@@ -153,6 +161,7 @@ fn init_logger() {
 #[tokio::main]
 async fn main() {
     init_logger();
+    info!("Launching saftladen");
 
     let (main_action_sender, mut main_action_receiver) = new_main_action_channel();
     let (mut item_action_sender, _item_action_receiver) = new_item_action_channel();
@@ -177,7 +186,11 @@ async fn main() {
         error!("Main loop terminated with: {err}");
     }
 
+    info!("Terminating");
+
     // Notify all threads about app termination and wait for them to terminate.
     let _ = item_action_sender.enqueue(ItemAction::Terminate);
     futures::future::join_all(threads).await;
+
+    info!("Goodbye");
 }
