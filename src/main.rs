@@ -4,11 +4,13 @@ use bar::SectionWriter;
 use error::Error;
 use log::{debug, error};
 use saftbar::bar::{Alignment, Bar};
-use state_item::{Notifyer, Receiver, StateItem};
-use tokio::{
-    signal,
-    sync::{broadcast, mpsc},
+use state_item::{
+    new_item_action_channel, new_main_action_channel, ItemAction, ItemActionSender,
+    MainActionReceiver, StateItem,
 };
+use tokio::signal;
+
+use crate::state_item::MainAction;
 
 mod bar;
 mod error;
@@ -55,11 +57,35 @@ fn init_state_items() -> StateItems {
     }
 }
 
+async fn redraw(
+    state_items: &StateItems,
+    displays: &[(String, (isize, isize))],
+    bar: &mut Bar,
+) -> Result<(), Error> {
+    bar.clear_monitors();
+    for (index, display) in displays.iter().enumerate() {
+        let mut writer = SectionWriter::new();
+        for item in &state_items.left {
+            item.print(&mut writer, &display.0).await?;
+        }
+        bar.render_string(index, Alignment::Left, &writer.unwrap());
+
+        let mut writer = SectionWriter::new();
+        for item in &state_items.right {
+            item.print(&mut writer, &display.0).await?;
+        }
+        bar.render_string(index, Alignment::Right, &writer.unwrap());
+    }
+    bar.blit();
+    Ok(())
+}
+
 async fn main_loop(
-    mut rerender_receiver: mpsc::Receiver<()>,
+    main_action_receiver: &mut MainActionReceiver,
+    item_action_sender: &mut ItemActionSender,
     state_items: &StateItems,
 ) -> Result<(), Error> {
-    let displays = get_displays().await?;
+    let mut displays = get_displays().await?;
     let mut bar = Bar::new();
 
     loop {
@@ -71,59 +97,23 @@ async fn main_loop(
                 debug!("Received CTRL+C, terminating");
                 break;
             }
-            _ = rerender_receiver.recv() => {
-                let state_items = &state_items;
-
-                bar.clear_monitors();
-                for (index, display) in displays.iter().enumerate() {
-                    let mut writer = SectionWriter::new();
-                    for item in &state_items.left {
-                        item.print(&mut writer, &display.0).await?;
-                    }
-                    bar.render_string(index, Alignment::Left, &writer.unwrap());
-
-                    let mut writer = SectionWriter::new();
-                    for item in &state_items.right {
-                        item.print(&mut writer, &display.0).await?;
-                    }
-                    bar.render_string(index, Alignment::Right, &writer.unwrap());
+            message = main_action_receiver.next() => {
+                match message {
+                    None => {}
+                    Some(MainAction::Reinit) => {
+                        displays = get_displays().await?;
+                        bar = Bar::new();
+                        if !item_action_sender.enqueue(ItemAction::Update) {
+                            let msg = "Failed to enqueue item update action".to_owned();
+                            return Err(Error::Local(msg));
+                        }
+                    },
+                    Some(MainAction::Redraw) => redraw(state_items, &displays, &mut bar).await?,
+                    Some(MainAction::Terminate) => break,
                 }
-                bar.blit();
             },
         }
     }
-    Ok(())
-}
-
-async fn run_main() -> Result<(), Error> {
-    let (message_sender, _message_receiver) = broadcast::channel(32);
-    let (rerender_sender, rerender_receiver) = mpsc::channel(32);
-
-    // Start all state items as coroutines.
-    let mut state_items = init_state_items();
-    let threads = state_items
-        .left
-        .iter_mut()
-        .chain(state_items.right.iter_mut())
-        .map(|item| {
-            item.start_coroutine(
-                Notifyer(rerender_sender.clone()),
-                Receiver(message_sender.subscribe()),
-            )
-        })
-        .collect::<Vec<_>>();
-
-    // Wait for messages, then rerender the respective part.
-    if let Err(err) = main_loop(rerender_receiver, &state_items).await {
-        error!("Main loop terminated with: {err}");
-    }
-
-    // Notify all threads about app termination and wait for them to terminate.
-    let _ = message_sender
-        .send(())
-        .map_err(|err| Error::Local(err.to_string()))?;
-    futures::future::join_all(threads).await;
-
     Ok(())
 }
 
@@ -163,7 +153,31 @@ fn init_logger() {
 #[tokio::main]
 async fn main() {
     init_logger();
-    if let Err(err) = run_main().await {
-        error!("{err}");
+
+    let (main_action_sender, mut main_action_receiver) = new_main_action_channel();
+    let (mut item_action_sender, _item_action_receiver) = new_item_action_channel();
+
+    // Start all state items as coroutines.
+    let mut state_items = init_state_items();
+    let threads = state_items
+        .left
+        .iter_mut()
+        .chain(state_items.right.iter_mut())
+        .map(|item| item.start_coroutine(main_action_sender.clone(), item_action_sender.listen()))
+        .collect::<Vec<_>>();
+
+    // Wait for messages, then rerender the respective part.
+    if let Err(err) = main_loop(
+        &mut main_action_receiver,
+        &mut item_action_sender,
+        &state_items,
+    )
+    .await
+    {
+        error!("Main loop terminated with: {err}");
     }
+
+    // Notify all threads about app termination and wait for them to terminate.
+    let _ = item_action_sender.enqueue(ItemAction::Terminate);
+    futures::future::join_all(threads).await;
 }

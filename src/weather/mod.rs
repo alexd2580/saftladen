@@ -7,7 +7,9 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use crate::{
     bar::{mix_colors_multi, Direction, SectionWriter, Style, BLUE, DARK_GREEN, RED},
     error::Error,
-    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
+    state_item::{
+        wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
+    },
     weather::wttrin::get_weather_data,
 };
 
@@ -173,26 +175,39 @@ impl StateItem for Weather {
         Ok(())
     }
 
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
-        tokio::spawn(weather_coroutine(self.0.clone(), notifyer, receiver))
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()> {
+        tokio::spawn(weather_coroutine(
+            self.0.clone(),
+            main_action_sender,
+            item_action_receiver,
+        ))
     }
 }
 
-async fn weather_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
+async fn weather_coroutine(
+    state: SharedData,
+    main_action_sender: MainActionSender,
+    mut item_action_receiver: ItemActionReceiver,
+) {
     loop {
         {
             let new_state = get_weather_data().await;
             let mut state_lock = state.lock().await;
             *state_lock = new_state;
-            if !notifyer.send().await {
+            if !main_action_sender.enqueue(MainAction::Redraw).await {
                 break;
             }
         }
 
         tokio::select! {
-            message = receiver.recv() => {
-                if message.is_some() {
-                    break;
+            message = item_action_receiver.next() => {
+                match message {
+                    None | Some(ItemAction::Update)  => {},
+                    Some(ItemAction::Terminate) => break,
                 }
             }
             _ = wait_seconds(1800) => {}

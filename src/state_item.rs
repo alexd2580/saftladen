@@ -8,11 +8,22 @@ use tokio::{
 use crate::bar::SectionWriter;
 use crate::error::Error;
 
-pub struct Notifyer(pub mpsc::Sender<()>);
+pub enum MainAction {
+    Terminate,
+    Redraw,
+    Reinit,
+}
+pub struct MainActionSender(pub mpsc::Sender<MainAction>);
+pub struct MainActionReceiver(pub mpsc::Receiver<MainAction>);
 
-impl Notifyer {
-    pub async fn send(&self) -> bool {
-        match self.0.send(()).await {
+pub fn new_main_action_channel() -> (MainActionSender, MainActionReceiver) {
+    let (sender, receiver) = mpsc::channel(32);
+    (MainActionSender(sender), MainActionReceiver(receiver))
+}
+
+impl MainActionSender {
+    pub async fn enqueue(&self, msg: MainAction) -> bool {
+        match self.0.send(msg).await {
             Err(err) => {
                 error!("{err}");
                 false
@@ -22,25 +33,67 @@ impl Notifyer {
     }
 }
 
-pub type ItemMessage = ();
-pub struct Receiver(pub broadcast::Receiver<ItemMessage>);
+impl Clone for MainActionSender {
+    fn clone(&self) -> Self {
+        MainActionSender(self.0.clone())
+    }
+}
 
-impl Receiver {
-    pub async fn recv(&mut self) -> Option<ItemMessage> {
-        match self.0.recv().await {
+impl MainActionReceiver {
+    pub async fn next(&mut self) -> Option<MainAction> {
+        self.0.recv().await
+    }
+}
+
+#[derive(Clone)]
+pub enum ItemAction {
+    Update,
+    Terminate,
+}
+pub struct ItemActionSender(pub broadcast::Sender<ItemAction>);
+pub struct ItemActionReceiver(pub broadcast::Receiver<ItemAction>);
+
+pub fn new_item_action_channel() -> (ItemActionSender, ItemActionReceiver) {
+    let (sender, receiver) = broadcast::channel(32);
+    (ItemActionSender(sender), ItemActionReceiver(receiver))
+}
+
+impl ItemActionSender {
+    pub fn enqueue(&self, msg: ItemAction) -> bool {
+        match self.0.send(msg) {
             Err(err) => {
                 error!("{err}");
-                None
+                false
             }
-            Ok(message) => Some(message),
+            Ok(_) => true,
         }
+    }
+
+    pub fn listen(&self) -> ItemActionReceiver {
+        ItemActionReceiver(self.0.subscribe())
+    }
+}
+
+impl ItemActionReceiver {
+    pub async fn next(&mut self) -> Option<ItemAction> {
+        self.0.recv().await.map_or_else(
+            |err| {
+                error!("{err}");
+                None
+            },
+            Some,
+        )
     }
 }
 
 #[async_trait::async_trait]
 pub trait StateItem {
     async fn print(&self, writer: &mut SectionWriter, output: &str) -> Result<(), Error>;
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()>;
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()>;
 }
 
 pub async fn wait_seconds(num_seconds: u64) {

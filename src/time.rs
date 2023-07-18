@@ -4,7 +4,9 @@ use tokio::task::JoinHandle;
 use crate::{
     bar::{Direction, SectionWriter, Style, BLUE, LIGHT_GRAY},
     error::Error,
-    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
+    state_item::{
+        wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
+    },
 };
 
 pub struct Time {
@@ -31,21 +33,29 @@ impl StateItem for Time {
         Ok(())
     }
 
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
-        tokio::spawn(time_coroutine(notifyer, receiver))
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()> {
+        tokio::spawn(time_coroutine(main_action_sender, item_action_receiver))
     }
 }
 
-async fn time_coroutine(notifyer: Notifyer, mut receiver: Receiver) {
+async fn time_coroutine(
+    main_action_sender: MainActionSender,
+    mut item_action_receiver: ItemActionReceiver,
+) {
     loop {
-        if !notifyer.send().await {
+        if !main_action_sender.enqueue(MainAction::Redraw).await {
             break;
         }
 
         tokio::select! {
-            message = receiver.recv() => {
-                if message.is_some() {
-                    break;
+            message = item_action_receiver.next() => {
+                match message {
+                    None | Some(ItemAction::Update)  => {},
+                    Some(ItemAction::Terminate) => break,
                 }
             }
             _ = wait_seconds(30) => {}

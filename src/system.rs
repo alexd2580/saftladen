@@ -6,7 +6,9 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use crate::{
     bar::{mix_colors, Direction, SectionWriter, Style, DARK_GREEN, RED, TOO_RED},
     error::Error,
-    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
+    state_item::{
+        wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
+    },
 };
 
 struct SystemData {
@@ -120,12 +122,24 @@ impl StateItem for System {
         Ok(())
     }
 
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
-        tokio::spawn(system_coroutine(self.0.clone(), notifyer, receiver))
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()> {
+        tokio::spawn(system_coroutine(
+            self.0.clone(),
+            main_action_sender,
+            item_action_receiver,
+        ))
     }
 }
 
-async fn system_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
+async fn system_coroutine(
+    state: SharedData,
+    main_action_sender: MainActionSender,
+    mut item_action_receiver: ItemActionReceiver,
+) {
     loop {
         {
             let mut state_lock = state.lock().await;
@@ -135,15 +149,16 @@ async fn system_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: R
             } else {
                 (*state_lock).as_mut().unwrap().update()
             };
-            if updated && !notifyer.send().await {
+            if updated && !main_action_sender.enqueue(MainAction::Redraw).await {
                 break;
             }
         }
 
         tokio::select! {
-            message = receiver.recv() => {
-                if message.is_some() {
-                    break;
+            message = item_action_receiver.next() => {
+                match message {
+                    None | Some(ItemAction::Update)  => {},
+                    Some(ItemAction::Terminate) => break,
                 }
             }
             _ = wait_seconds(5) => {}

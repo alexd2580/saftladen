@@ -1,17 +1,14 @@
 use std::{collections::HashMap, sync::Arc};
 
-use async_i3ipc::{
-    event::{Subscribe, WindowChange, WindowData},
-    reply,
-};
-use log::error;
+use async_i3ipc::reply;
+use log::{debug, error};
 use saftbar::xft::RGBA;
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
     bar::{Direction, SectionWriter, Style, BLUE, DARKEST_GRAY, DARK_GRAY, GRAY, LIGHT_GRAY, RED},
     error::Error,
-    state_item::{Notifyer, Receiver, StateItem},
+    state_item::{ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem},
 };
 
 use self::state::State;
@@ -106,12 +103,21 @@ impl StateItem for I3 {
         Ok(())
     }
 
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
-        tokio::spawn(i3_coroutine(self.0.clone(), notifyer, receiver))
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()> {
+        tokio::spawn(i3_coroutine(
+            self.0.clone(),
+            main_action_sender,
+            item_action_receiver,
+        ))
     }
 }
 
 async fn init_coroutine_resources() -> Result<(async_i3ipc::EventStream, async_i3ipc::I3), Error> {
+    use async_i3ipc::event::Subscribe;
     let event_stream = {
         let mut i3 = async_i3ipc::I3::connect().await?;
         let subscription_events = [Subscribe::Output, Subscribe::Workspace, Subscribe::Window];
@@ -129,7 +135,13 @@ async fn init_coroutine_resources() -> Result<(async_i3ipc::EventStream, async_i
     Ok((event_stream, i3))
 }
 
-async fn i3_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
+async fn i3_coroutine(
+    state: SharedData,
+    main_action_sender: MainActionSender,
+    mut item_action_receiver: ItemActionReceiver,
+) {
+    use async_i3ipc::event::{Event, OutputData, WindowChange, WindowData};
+
     let (mut event_stream, mut i3) = match init_coroutine_resources().await {
         Ok(x) => x,
         Err(err) => {
@@ -155,27 +167,33 @@ async fn i3_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Recei
                 }
             }
 
-            if !notifyer.send().await {
+            if !main_action_sender.enqueue(MainAction::Redraw).await {
                 break;
             }
         }
 
         tokio::select! {
-            message = receiver.recv() => {
-                if message.is_some() {
-                    break;
+            message = item_action_receiver.next() => {
+                match message {
+                    None | Some(ItemAction::Update)  => {},
+                    Some(ItemAction::Terminate) => break,
                 }
             }
             maybe_event = event_stream.next() => {
                 match maybe_event {
                     Err(err) => error!("{err}"),
-                    Ok(async_i3ipc::event::Event::Window(window_event)) => {
+                    Ok(Event::Window(window_event)) => {
                         let &WindowData { change, ref container } = &*window_event;
                         if change == WindowChange::Focus {
                             last_focused_windows.insert(container.output.as_ref().unwrap().clone(), container.id);
                         }
                     }
-
+                    Ok(Event::Output(OutputData { change })) => {
+                        debug!("{change}");
+                        if !main_action_sender.enqueue(MainAction::Reinit).await {
+                            break;
+                        }
+                    },
                     Ok(_) => {},
                 }
             }

@@ -7,7 +7,9 @@ use tokio::{sync::Mutex, task::JoinHandle};
 use crate::{
     bar::{mix_colors, Direction, SectionWriter, Style, DARK_GREEN, RED},
     error::Error,
-    state_item::{wait_seconds, Notifyer, Receiver, StateItem},
+    state_item::{
+        wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
+    },
 };
 
 struct PulseaudioData {
@@ -77,12 +79,24 @@ impl StateItem for Pulseaudio {
         Ok(())
     }
 
-    fn start_coroutine(&self, notifyer: Notifyer, receiver: Receiver) -> JoinHandle<()> {
-        tokio::spawn(pulseaudio_coroutine(self.0.clone(), notifyer, receiver))
+    fn start_coroutine(
+        &self,
+        main_action_sender: MainActionSender,
+        item_action_receiver: ItemActionReceiver,
+    ) -> JoinHandle<()> {
+        tokio::spawn(pulseaudio_coroutine(
+            self.0.clone(),
+            main_action_sender,
+            item_action_receiver,
+        ))
     }
 }
 
-async fn pulseaudio_coroutine(state: SharedData, notifyer: Notifyer, mut receiver: Receiver) {
+async fn pulseaudio_coroutine(
+    state: SharedData,
+    main_action_sender: MainActionSender,
+    mut item_action_receiver: ItemActionReceiver,
+) {
     loop {
         {
             *(state.lock().await) = match try_get_volume() {
@@ -93,15 +107,16 @@ async fn pulseaudio_coroutine(state: SharedData, notifyer: Notifyer, mut receive
                 Ok(data) => Some(data),
             };
 
-            if !notifyer.send().await {
+            if !main_action_sender.enqueue(MainAction::Redraw).await {
                 break;
             }
         }
 
         tokio::select! {
-            message = receiver.recv() => {
-                if message.is_some() {
-                    break;
+            message = item_action_receiver.next() => {
+                match message {
+                    None | Some(ItemAction::Update)  => {},
+                    Some(ItemAction::Terminate) => break,
                 }
             }
             _ = wait_seconds(120) => {}
