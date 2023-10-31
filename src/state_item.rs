@@ -8,6 +8,7 @@ use tokio::{
 use crate::bar::SectionWriter;
 use crate::error::Error;
 
+#[derive(Debug)]
 pub enum MainAction {
     Terminate,
     Redraw,

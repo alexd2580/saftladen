@@ -1,12 +1,18 @@
 use std::{collections::HashMap, sync::Arc};
 
-use async_i3ipc::reply;
-use log::{debug, error};
-use saftbar::xft::RGBA;
+use async_i3ipc::{
+    event::{WorkspaceChange, WorkspaceData},
+    reply::{self, Node},
+};
+use log::error;
+use saftbar::{
+    bar::{PowerlineDirection, PowerlineStyle},
+    xft::RGBA,
+};
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    bar::{Direction, SectionWriter, Style, BLUE, DARKEST_GRAY, DARK_GRAY, GRAY, LIGHT_GRAY, RED},
+    bar::{SectionWriter, BLUE, DARKEST_GRAY, DARK_GRAY, GRAY, LIGHT_GRAY, RED},
     error::Error,
     state_item::{ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem},
 };
@@ -17,6 +23,7 @@ mod state;
 
 struct I3Data {
     tree_state: State,
+    last_focused_workspace: i32,
     last_focused_windows: HashMap<String, usize>,
 }
 
@@ -43,6 +50,8 @@ impl I3 {
     }
 }
 
+const NUMBERS: [&str; 10] = ["󰲠", "󰲢", "󰲤", "󰲦", "󰲨", "󰲪", "󰲬", "󰲮", "󰲰", "󰿬"];
+
 pub const INACTIVE: (RGBA, RGBA) = (DARKEST_GRAY, GRAY);
 pub const SEMIACTIVE: (RGBA, RGBA) = (DARK_GRAY, LIGHT_GRAY);
 pub const ACTIVE: (RGBA, RGBA) = (BLUE, LIGHT_GRAY);
@@ -61,29 +70,40 @@ fn choose_coloring(urgent: bool, active: bool, visible: bool) -> (RGBA, RGBA) {
 impl StateItem for I3 {
     async fn print(&self, writer: &mut SectionWriter, output_name: &str) -> Result<(), Error> {
         if let Some(I3Data {
-            ref tree_state,
-            ref last_focused_windows,
-        }) = *(self.0.lock().await)
+            tree_state,
+            last_focused_workspace,
+            last_focused_windows,
+        }) = &*(self.0.lock().await)
         {
             let output = tree_state
                 .0
                 .get(output_name)
                 .ok_or_else(|| Error::Local(format!("Output '{output_name}' not found")))?;
 
-            writer.set_style(Style::Rounded);
-            writer.set_direction(Direction::Right);
+            writer.set_style(PowerlineStyle::Octagon);
+            writer.set_direction(PowerlineDirection::Right);
             for (num, workspace) in &output.workspaces {
                 // TODO
-                let workspace_coloring =
-                    choose_coloring(workspace.urgent, workspace.active, workspace.visible);
+                let workspace_coloring = choose_coloring(
+                    workspace.urgent,
+                    workspace.active || num == last_focused_workspace,
+                    workspace.visible,
+                );
                 writer.open_(workspace_coloring);
-                writer.write(format!(" {num} "));
+
+                let num = *num;
+                let ws_num = if num > 0 && num < 11 {
+                    NUMBERS[num as usize - 1].to_owned()
+                } else {
+                    format!(" {num} ")
+                };
+                writer.write(ws_num);
 
                 let windows = &workspace.windows;
                 if windows.is_empty() {
                 } else if windows.len() == 1 {
                     let first = windows.first_key_value().unwrap();
-                    writer.write(first.1.short_title());
+                    writer.write(format!(" {}", first.1.short_title()));
                 } else {
                     for window in windows.values() {
                         let window_visible = last_focused_windows
@@ -93,7 +113,7 @@ impl StateItem for I3 {
                         let window_coloring =
                             choose_coloring(window.urgent, window.active, window_visible);
                         writer.open_(window_coloring);
-                        writer.write(format!(" {}", window.short_title()));
+                        writer.write(format!("{}", window.short_title()));
                     }
                 }
 
@@ -150,6 +170,7 @@ async fn i3_coroutine(
         }
     };
 
+    let mut last_focused_workspace = 1;
     let mut last_focused_windows = HashMap::new();
 
     loop {
@@ -162,6 +183,7 @@ async fn i3_coroutine(
                     let last_focused_windows = last_focused_windows.clone();
                     *state.lock().await = Some(I3Data {
                         tree_state,
+                        last_focused_workspace,
                         last_focused_windows,
                     });
                 }
@@ -183,13 +205,20 @@ async fn i3_coroutine(
                 match maybe_event {
                     Err(err) => error!("{err}"),
                     Ok(Event::Window(window_event)) => {
-                        let &WindowData { change, ref container } = &*window_event;
-                        if change == WindowChange::Focus {
+                        let WindowData { change, container } = &*window_event;
+                        if *change == WindowChange::Focus {
                             last_focused_windows.insert(container.output.as_ref().unwrap().clone(), container.id);
                         }
                     }
-                    Ok(Event::Output(OutputData { change })) => {
-                        debug!("{change}");
+                    Ok(Event::Workspace(workspace_event)) => {
+                        let WorkspaceData { change, current, .. } = &*workspace_event;
+                        if *change == WorkspaceChange::Focus {
+                            if let Some(Node { num: Some(num), .. }) = &current {
+                                last_focused_workspace = *num;
+                            }
+                        }
+                    }
+                    Ok(Event::Output(OutputData { .. })) => {
                         if !main_action_sender.enqueue(MainAction::Reinit).await {
                             break;
                         }

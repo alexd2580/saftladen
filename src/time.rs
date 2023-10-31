@@ -1,8 +1,9 @@
 use chrono::Local;
+use saftbar::bar::{PowerlineDirection, PowerlineStyle};
 use tokio::task::JoinHandle;
 
 use crate::{
-    bar::{Direction, SectionWriter, Style, BLUE, LIGHT_GRAY},
+    bar::{SectionWriter, BLUE, LIGHT_GRAY},
     error::Error,
     state_item::{
         wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
@@ -25,8 +26,8 @@ impl Time {
 impl StateItem for Time {
     async fn print(&self, writer: &mut SectionWriter, _output: &str) -> Result<(), Error> {
         let now = Local::now();
-        writer.set_style(Style::Powerline);
-        writer.set_direction(Direction::Left);
+        writer.set_style(PowerlineStyle::Powerline);
+        writer.set_direction(PowerlineDirection::Left);
         writer.open(BLUE, LIGHT_GRAY);
         writer.write(format!(" {} ", now.format(&self.format)));
         writer.close();

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-saftbar = { git = "https://github.com/alexd2580/saftbar.git" }
+# saftbar = { git = "https://github.com/alexd2580/saftbar.git" }
+saftbar = { path = "../saftbar" }
 async-i3ipc = "0.7.0"
 async-trait = "0.1.68"
 chrono = "0.4.26"
@@ -14,6 +15,7 @@ regex = "1.8.4"
 tokio = { version = "1.28.2", features = ["full"] }
 reqwest = { version = "0.11.18", features = ["json"] }
 serde = { version = "1.0.166", features = ["derive"] }
-pulsectl-rs = "0.3.2"
+# pulsectl-rs = "0.3.2"
 sysinfo = "0.29.4"
 simplelog = "0.12.1"
+xcb = "1.2.1"

@@ -1,21 +1,7 @@
-use saftbar::{bar::ColoredText, xft::RGBA};
-
-#[derive(Clone, Copy)]
-pub enum Style {
-    Powerline,
-    Rounded,
-}
-
-#[derive(Clone, Copy)]
-pub enum Direction {
-    Left,
-    Right,
-}
-
-pub const LEFT_POWERLINE: (&str, &str) = ("", "");
-pub const RIGHT_POWERLINE: (&str, &str) = ("", "");
-pub const LEFT_ROUNDED: (&str, &str) = ("", "");
-pub const RIGHT_ROUNDED: (&str, &str) = ("", "");
+use saftbar::{
+    bar::{ContentItem, ContentShape, PowerlineDirection, PowerlineFill, PowerlineStyle},
+    xft::RGBA,
+};
 
 pub const WHITE: RGBA = (255, 255, 255, 255);
 pub const LIGHT_GRAY: RGBA = (204, 204, 204, 255);
@@ -109,69 +95,56 @@ fn font_color(bg: RGBA) -> RGBA {
     }
 }
 
-fn get_separators(style: Style, direction: Direction) -> (&'static str, &'static str) {
-    match (style, direction) {
-        (Style::Powerline, Direction::Left) => LEFT_POWERLINE,
-        (Style::Powerline, Direction::Right) => RIGHT_POWERLINE,
-        (Style::Rounded, Direction::Left) => LEFT_ROUNDED,
-        (Style::Rounded, Direction::Right) => RIGHT_ROUNDED,
-    }
-}
-
 pub struct SectionWriter {
-    texts: Vec<ColoredText>,
+    texts: Vec<ContentItem>,
 
-    style: Style,
-    direction: Direction,
+    style: PowerlineStyle,
+    direction: PowerlineDirection,
 
     bg: RGBA,
     fg: RGBA,
 }
 
 impl SectionWriter {
-    pub fn new() -> Self {
-        SectionWriter {
-            texts: Vec::new(),
-            style: Style::Powerline,
-            direction: Direction::Right,
-            bg: BLACK,
-            fg: WHITE,
-        }
-    }
-
-    pub fn set_style(&mut self, style: Style) {
+    pub fn set_style(&mut self, style: PowerlineStyle) {
         self.style = style;
     }
 
-    pub fn set_direction(&mut self, direction: Direction) {
+    pub fn set_direction(&mut self, direction: PowerlineDirection) {
         self.direction = direction;
     }
 
     pub fn write(&mut self, text: String) {
-        self.texts.push(ColoredText {
-            text,
+        self.texts.push(ContentItem {
+            shape: ContentShape::Text(text),
+            fg: self.fg,
+            bg: self.bg,
+        });
+    }
+
+    fn write_powerline(&mut self, fill: PowerlineFill) {
+        self.texts.push(ContentItem {
+            shape: ContentShape::Powerline(self.style, fill, self.direction),
             fg: self.fg,
             bg: self.bg,
         });
     }
 
     fn separate(&mut self, next_bg: RGBA, next_fg: RGBA) {
-        let separators = get_separators(self.style, self.direction);
-
         if next_bg == self.bg {
             self.fg = BLACK;
-            self.write(separators.1.to_owned());
+            self.write_powerline(PowerlineFill::No);
         } else {
             match self.direction {
-                Direction::Left => {
+                PowerlineDirection::Left => {
                     self.fg = next_bg;
-                    self.write(separators.0.to_owned());
+                    self.write_powerline(PowerlineFill::Full);
                     self.bg = next_bg;
                 }
-                Direction::Right => {
+                PowerlineDirection::Right => {
                     self.fg = self.bg;
                     self.bg = next_bg;
-                    self.write(separators.0.to_owned());
+                    self.write_powerline(PowerlineFill::Full);
                 }
             }
         }
@@ -199,7 +172,19 @@ impl SectionWriter {
         self.separate(WHITE_ON_BLACK.0, WHITE_ON_BLACK.1);
     }
 
-    pub fn unwrap(self) -> Vec<ColoredText> {
+    pub fn unwrap(self) -> Vec<ContentItem> {
         self.texts
+    }
+}
+
+impl Default for SectionWriter {
+    fn default() -> Self {
+        Self {
+            texts: Vec::new(),
+            style: PowerlineStyle::Powerline,
+            direction: PowerlineDirection::Right,
+            bg: BLACK,
+            fg: WHITE,
+        }
     }
 }

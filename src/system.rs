@@ -1,10 +1,11 @@
 use std::{sync::Arc, time};
 
+use saftbar::bar::{PowerlineDirection, PowerlineStyle};
 use sysinfo::{CpuExt, SystemExt};
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    bar::{mix_colors, Direction, SectionWriter, Style, DARK_GREEN, RED, TOO_RED},
+    bar::{mix_colors, SectionWriter, DARK_GREEN, RED, TOO_RED},
     error::Error,
     state_item::{
         wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
@@ -97,8 +98,8 @@ fn format_bytes(a: u64) -> String {
 #[async_trait::async_trait]
 impl StateItem for System {
     async fn print(&self, writer: &mut SectionWriter, _output: &str) -> Result<(), Error> {
-        writer.set_style(Style::Powerline);
-        writer.set_direction(Direction::Left);
+        writer.set_style(PowerlineStyle::Powerline);
+        writer.set_direction(PowerlineDirection::Left);
 
         let state = self.0.lock().await;
         if let Some(ref data) = *state {

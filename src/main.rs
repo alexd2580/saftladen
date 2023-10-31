@@ -1,6 +1,5 @@
 use std::{cmp::Ordering, fs::File};
 
-use bar::SectionWriter;
 use error::Error;
 use log::{debug, error, info};
 use saftbar::bar::{Alignment, Bar};
@@ -67,26 +66,28 @@ async fn redraw(
     debug!("Redraw");
     bar.clear_monitors();
     for (index, display) in displays.iter().enumerate() {
-        let mut writer = SectionWriter::new();
+        let mut writer = Default::default();
         for item in &state_items.left {
             item.print(&mut writer, &display.0).await?;
         }
-        bar.render_string(index, Alignment::Left, &writer.unwrap());
+        bar.draw(index, Alignment::Left, &writer.unwrap());
 
-        let mut writer = SectionWriter::new();
+        let mut writer = Default::default();
         for item in &state_items.right {
             item.print(&mut writer, &display.0).await?;
         }
-        bar.render_string(index, Alignment::Right, &writer.unwrap());
+        bar.draw(index, Alignment::Right, &writer.unwrap());
     }
-    bar.blit();
+    bar.present();
+    bar.flush();
+
     debug!("Redraw done");
     Ok(())
 }
 
 async fn main_loop(
     main_action_receiver: &mut MainActionReceiver,
-    item_action_sender: &mut ItemActionSender,
+    _item_action_sender: &mut ItemActionSender,
     state_items: &StateItems,
 ) -> Result<(), Error> {
     let mut displays = get_displays().await?;
@@ -95,7 +96,12 @@ async fn main_loop(
     loop {
         tokio::select! {
             event = bar.next_x_event() => {
-                debug!("{event:#?}");
+                match event {
+                    xcb::Event::X(xcb::x::Event::NoExposure { .. }) => {}
+                    xcb::Event::X(xcb::x::Event::Expose { .. }) => {}
+                    _ => debug!("{event:#?}")
+                }
+
             }
             _ = signal::ctrl_c() => {
                 debug!("Received CTRL+C, terminating");
@@ -105,19 +111,11 @@ async fn main_loop(
                 match message {
                     None => {}
                     Some(MainAction::Reinit) => {
-                        debug!("Reinitializing bar");
                         displays = get_displays().await?;
-                        debug!("new_bar");
-                        let new_bar = Bar::new();
-                        debug!("drop_old_bar");
-                        bar = new_bar;
-                        if !item_action_sender.enqueue(ItemAction::Update) {
-                            let msg = "Failed to enqueue item update action".to_owned();
-                            return Err(Error::Local(msg));
-                        }
+                        bar = Bar::new();
                     },
-                    Some(MainAction::Redraw) => redraw(state_items, &displays, &mut bar).await?,
                     Some(MainAction::Terminate) => break,
+                    Some(MainAction::Redraw) => redraw(state_items, &displays, &mut bar).await?,
                 }
             },
         }
@@ -175,7 +173,6 @@ async fn main() {
         .map(|item| item.start_coroutine(main_action_sender.clone(), item_action_sender.listen()))
         .collect::<Vec<_>>();
 
-    // Wait for messages, then rerender the respective part.
     if let Err(err) = main_loop(
         &mut main_action_receiver,
         &mut item_action_sender,
@@ -185,8 +182,6 @@ async fn main() {
     {
         error!("Main loop terminated with: {err}");
     }
-
-    info!("Terminating");
 
     // Notify all threads about app termination and wait for them to terminate.
     let _ = item_action_sender.enqueue(ItemAction::Terminate);

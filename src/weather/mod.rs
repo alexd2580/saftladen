@@ -1,11 +1,14 @@
 use std::sync::Arc;
 
 use chrono::{Local, Timelike};
-use saftbar::xft::RGBA;
+use saftbar::{
+    bar::{PowerlineDirection, PowerlineStyle},
+    xft::RGBA,
+};
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    bar::{mix_colors_multi, Direction, SectionWriter, Style, BLUE, DARK_GREEN, RED},
+    bar::{mix_colors_multi, SectionWriter, BLUE, DARK_GREEN, RED},
     error::Error,
     state_item::{
         wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
@@ -120,8 +123,8 @@ pub const HOT: RGBA = RED;
 impl StateItem for Weather {
     #[allow(clippy::cast_precision_loss)]
     async fn print(&self, writer: &mut SectionWriter, _output: &str) -> Result<(), Error> {
-        writer.set_style(Style::Powerline);
-        writer.set_direction(Direction::Left);
+        writer.set_style(PowerlineStyle::Powerline);
+        writer.set_direction(PowerlineDirection::Left);
 
         let state = self.0.lock().await;
         if let Some(ref data) = *state {
