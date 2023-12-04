@@ -66,6 +66,7 @@ fn choose_coloring(urgent: bool, active: bool, visible: bool) -> (RGBA, RGBA) {
     }
 }
 
+#[allow(clippy::cast_sign_loss)]
 #[async_trait::async_trait]
 impl StateItem for I3 {
     async fn print(&self, writer: &mut SectionWriter, output_name: &str) -> Result<(), Error> {
@@ -113,7 +114,7 @@ impl StateItem for I3 {
                         let window_coloring =
                             choose_coloring(window.urgent, window.active, window_visible);
                         writer.open_(window_coloring);
-                        writer.write(format!("{}", window.short_title()));
+                        writer.write(window.short_title().to_string());
                     }
                 }
 

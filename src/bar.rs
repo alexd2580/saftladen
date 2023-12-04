@@ -48,42 +48,20 @@ pub fn mix_colors(value: f32, min: f32, max: f32, min_color: RGBA, max_color: RG
     )
 }
 
-#[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
 pub fn mix_colors_multi(
     value: f32,
-    min: f32,
-    min_green: f32,
-    max_green: f32,
-    max: f32,
-    min_color: RGBA,
-    green_color: RGBA,
-    max_color: RGBA,
+    reference_points: &[(f32, RGBA)],
 ) -> RGBA {
-    if value <= max_green {
-        let alpha = ((value - min) / (min_green - min)).clamp(0f32, 1f32);
-        let inv_alpha = 1.0 - alpha;
+    let (mut min, mut min_color) = reference_points[0];
+    for &(max, max_color) in reference_points {
+        if value < max {
+            return mix_colors(value, min, max, min_color, max_color);
+        }
 
-        let (r1, g1, b1, a1) = min_color;
-        let (r2, g2, b2, a2) = green_color;
-        (
-            (f32::from(r1) * inv_alpha + f32::from(r2) * alpha) as u8,
-            (f32::from(g1) * inv_alpha + f32::from(g2) * alpha) as u8,
-            (f32::from(b1) * inv_alpha + f32::from(b2) * alpha) as u8,
-            (f32::from(a1) * inv_alpha + f32::from(a2) * alpha) as u8,
-        )
-    } else {
-        let alpha = ((value - max_green) / (max - max_green)).clamp(0f32, 1f32);
-        let inv_alpha = 1.0 - alpha;
-
-        let (r1, g1, b1, a1) = green_color;
-        let (r2, g2, b2, a2) = max_color;
-        (
-            (f32::from(r1) * inv_alpha + f32::from(r2) * alpha) as u8,
-            (f32::from(g1) * inv_alpha + f32::from(g2) * alpha) as u8,
-            (f32::from(b1) * inv_alpha + f32::from(b2) * alpha) as u8,
-            (f32::from(a1) * inv_alpha + f32::from(a2) * alpha) as u8,
-        )
+        min = max;
+        min_color = max_color;
     }
+    min_color
 }
 
 fn font_color(bg: RGBA) -> RGBA {
@@ -130,34 +108,34 @@ impl SectionWriter {
         });
     }
 
-    fn separate(&mut self, next_bg: RGBA, next_fg: RGBA) {
-        if next_bg == self.bg {
+    fn separate(&mut self, next_background: RGBA, next_foreground: RGBA) {
+        if next_background == self.bg {
             self.fg = BLACK;
             self.write_powerline(PowerlineFill::No);
         } else {
             match self.direction {
                 PowerlineDirection::Left => {
-                    self.fg = next_bg;
+                    self.fg = next_background;
                     self.write_powerline(PowerlineFill::Full);
-                    self.bg = next_bg;
+                    self.bg = next_background;
                 }
                 PowerlineDirection::Right => {
                     self.fg = self.bg;
-                    self.bg = next_bg;
+                    self.bg = next_background;
                     self.write_powerline(PowerlineFill::Full);
                 }
             }
         }
 
-        self.fg = next_fg;
+        self.fg = next_foreground;
     }
 
     pub fn open_(&mut self, next_colors: (RGBA, RGBA)) {
         self.open(next_colors.0, next_colors.1);
     }
 
-    pub fn open(&mut self, next_bg: RGBA, next_fg: RGBA) {
-        self.separate(next_bg, next_fg);
+    pub fn open(&mut self, next_background: RGBA, next_foreground: RGBA) {
+        self.separate(next_background, next_foreground);
     }
 
     pub fn open_bg(&mut self, next_bg: RGBA) {

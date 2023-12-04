@@ -29,8 +29,8 @@ impl Weather {
     }
 }
 
-fn weather_icon(code: u32, is_day: bool) -> &'static str {
-    match code {
+fn weather_icon(data: &WeatherData, since_midnight: chrono::Duration) -> &'static str {
+    match data.condition_code {
         // nf-weather-thunderstorm
         // 389 Moderate or heavy rain in area with thunder
         // 386 Patchy light rain in area with thunder
@@ -105,6 +105,9 @@ fn weather_icon(code: u32, is_day: bool) -> &'static str {
         // nf-weather-day_sunny
         // 113 Clear/Sunny
         113 => {
+            let is_day = since_midnight > data.midnight_to_sunrise
+                && since_midnight < data.midnight_to_sunset;
+
             if is_day {
                 ""
             } else {
@@ -115,9 +118,34 @@ fn weather_icon(code: u32, is_day: bool) -> &'static str {
     }
 }
 
+fn next_event(data: &WeatherData, since_midnight: chrono::Duration) -> (&str, chrono::Duration) {
+    if since_midnight < data.midnight_to_sunrise {
+        ("", data.midnight_to_sunrise - since_midnight)
+    } else if since_midnight < data.midnight_to_sunset {
+        ("", data.midnight_to_sunset - since_midnight)
+    } else {
+        let since_midnight = since_midnight - chrono::Duration::days(1);
+        ("", data.midnight_to_sunrise - since_midnight)
+    }
+}
+
+fn duration_since_midnight() -> chrono::Duration {
+    let secs_from_midnight = Local::now().num_seconds_from_midnight();
+    chrono::Duration::seconds(i64::from(secs_from_midnight))
+}
+
+fn split_duration(duration: chrono::Duration) -> (i64, i64) {
+    let hours = duration.num_hours();
+    let minutes = (duration - chrono::Duration::hours(hours)).num_minutes();
+    (hours, minutes)
+}
+
 pub const COLD: RGBA = BLUE;
 pub const NORMAL: RGBA = DARK_GREEN;
 pub const HOT: RGBA = RED;
+
+const WEATHER_REFERENCE_POINTS: [(f32, RGBA); 4] =
+    [(-5f32, COLD), (5f32, NORMAL), (20f32, NORMAL), (30f32, HOT)];
 
 #[async_trait::async_trait]
 impl StateItem for Weather {
@@ -128,52 +156,23 @@ impl StateItem for Weather {
 
         let state = self.0.lock().await;
         if let Some(ref data) = *state {
-            let temp_color = mix_colors_multi(
-                data.temp as f32,
-                -10f32,
-                0f32,
-                20f32,
-                30f32,
-                COLD,
-                NORMAL,
-                HOT,
-            );
-            writer.open_bg(temp_color);
+            let temp_color = mix_colors_multi(data.temp as f32, &WEATHER_REFERENCE_POINTS);
+            writer.with_bg(temp_color, &|writer| {
+                let since_midnight = duration_since_midnight();
+                let weather_icon = weather_icon(data, since_midnight);
 
-            let since_midnight =
-                chrono::Duration::seconds(i64::from(Local::now().num_seconds_from_midnight()));
-            let is_day = data.midnight_to_sunrise <= since_midnight
-                && since_midnight < data.midnight_to_sunset;
-            let weather_icon = weather_icon(data.condition_code, is_day);
+                writer.write(format!(
+                    "{} {} {} ",
+                    weather_icon, data.condition, data.temp
+                ));
+                writer.split();
 
-            writer.write(format!(
-                "{} {} {} ",
-                weather_icon, data.condition, data.temp
-            ));
-            writer.split();
-
-            let (icon, duration) = {
-                if since_midnight < data.midnight_to_sunrise {
-                    ("", data.midnight_to_sunrise - since_midnight)
-                } else if since_midnight < data.midnight_to_sunset {
-                    ("", data.midnight_to_sunset - since_midnight)
-                } else {
-                    (
-                        "",
-                        data.midnight_to_sunrise + chrono::Duration::days(1) - since_midnight,
-                    )
-                }
-            };
-
-            let hours = duration.num_hours();
-            let minutes = (duration - chrono::Duration::hours(hours)).num_minutes();
-
-            writer.write(format!("{icon} in {hours:0>2}:{minutes:0>2} "));
-            writer.close();
+                let (icon, duration) = next_event(data, since_midnight);
+                let (hours, minutes) = split_duration(duration);
+                writer.write(format!("{icon} in {hours:0>2}:{minutes:0>2} "));
+            });
         } else {
-            writer.open_bg(RED);
-            writer.write("󰅤".to_string());
-            writer.close();
+            writer.with_bg(RED, &|writer| writer.write("󰅤".to_string()));
         }
         Ok(())
     }

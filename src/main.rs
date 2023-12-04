@@ -9,7 +9,7 @@ use state_item::{
 };
 use tokio::signal;
 
-use crate::state_item::MainAction;
+use crate::{bar::SectionWriter, state_item::MainAction};
 
 mod bar;
 mod error;
@@ -66,13 +66,13 @@ async fn redraw(
     debug!("Redraw");
     bar.clear_monitors();
     for (index, display) in displays.iter().enumerate() {
-        let mut writer = Default::default();
+        let mut writer = SectionWriter::default();
         for item in &state_items.left {
             item.print(&mut writer, &display.0).await?;
         }
         bar.draw(index, Alignment::Left, &writer.unwrap());
 
-        let mut writer = Default::default();
+        let mut writer = SectionWriter::default();
         for item in &state_items.right {
             item.print(&mut writer, &display.0).await?;
         }
@@ -85,6 +85,7 @@ async fn redraw(
     Ok(())
 }
 
+#[allow(clippy::match_same_arms)]
 async fn main_loop(
     main_action_receiver: &mut MainActionReceiver,
     _item_action_sender: &mut ItemActionSender,
