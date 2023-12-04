@@ -38,7 +38,7 @@ const LANGUAGES: [(&str, &str); 13] = [
     ("docker", ""),
 ];
 
-const PROGRAMS: [(&str, &str); 17] = [
+const PROGRAMS: [(&str, &str); 18] = [
     ("vlc", "󰕼"),
     ("gimp", ""),
     ("mumble", ""),
@@ -50,6 +50,7 @@ const PROGRAMS: [(&str, &str); 17] = [
     ("man", ""),
     ("docker", ""),
     ("npm", ""),
+    ("node", "󰎙"),
     ("discord", "󰙯"),
     ("irssi", ""),
     ("gdb", ""),
