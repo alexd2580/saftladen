@@ -41,10 +41,10 @@ pub fn mix_colors(value: f32, min: f32, max: f32, min_color: RGBA, max_color: RG
     let (r1, g1, b1, a1) = min_color;
     let (r2, g2, b2, a2) = max_color;
     (
-        (f32::from(r1) * alpha + f32::from(r2) * inv_alpha) as u8,
-        (f32::from(g1) * alpha + f32::from(g2) * inv_alpha) as u8,
-        (f32::from(b1) * alpha + f32::from(b2) * inv_alpha) as u8,
-        (f32::from(a1) * alpha + f32::from(a2) * inv_alpha) as u8,
+        (f32::from(r1) * inv_alpha + f32::from(r2) * alpha) as u8,
+        (f32::from(g1) * inv_alpha + f32::from(g2) * alpha) as u8,
+        (f32::from(b1) * inv_alpha + f32::from(b2) * alpha) as u8,
+        (f32::from(a1) * inv_alpha + f32::from(a2) * alpha) as u8,
     )
 }
 
@@ -170,6 +170,12 @@ impl SectionWriter {
 
     pub fn close(&mut self) {
         self.separate(WHITE_ON_BLACK.0, WHITE_ON_BLACK.1);
+    }
+
+    pub fn with_bg(&mut self, next_bg: RGBA, body: &impl Fn(&mut Self)) {
+        self.open_bg(next_bg);
+        body(self);
+        self.close();
     }
 
     pub fn unwrap(self) -> Vec<ContentItem> {

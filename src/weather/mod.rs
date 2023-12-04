@@ -130,10 +130,10 @@ impl StateItem for Weather {
         if let Some(ref data) = *state {
             let temp_color = mix_colors_multi(
                 data.temp as f32,
-                -5f32,
+                -10f32,
                 0f32,
                 20f32,
-                25f32,
+                30f32,
                 COLD,
                 NORMAL,
                 HOT,
