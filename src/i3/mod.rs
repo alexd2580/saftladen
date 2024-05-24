@@ -4,7 +4,7 @@ use async_i3ipc::{
     event::{WorkspaceChange, WorkspaceData},
     reply::{self, Node},
 };
-use log::error;
+use log::{error, debug};
 use saftbar::{
     bar::{PowerlineDirection, PowerlineStyle},
     xft::RGBA,
@@ -229,4 +229,5 @@ async fn i3_coroutine(
             }
         }
     }
+    debug!("coroutine exiting");
 }

@@ -1,5 +1,9 @@
+use std::time::Duration;
+
 use log::warn;
 use serde::Deserialize;
+
+use crate::error::Error;
 
 #[derive(Debug)]
 pub struct WeatherData {
@@ -67,15 +71,19 @@ fn handle_response(data: &WttrInFormatJ1) -> WeatherData {
     }
 }
 
+async fn run_request() -> Result<WeatherData, Error> {
+    let response = reqwest::Client::default()
+        .get("https://wttr.in?format=j1")
+        .timeout(Duration::new(3, 0))
+        .send()
+        .await?;
+    let json = response.json::<WttrInFormatJ1>().await?;
+    Ok(handle_response(&json))
+}
+
 pub async fn get_weather_data() -> Option<WeatherData> {
-    match reqwest::get("https://wttr.in?format=j1").await {
-        Ok(response) => match response.json::<WttrInFormatJ1>().await {
-            Ok(data) => Some(handle_response(&data)),
-            Err(err) => {
-                warn!("{err}");
-                None
-            }
-        },
+    match run_request().await {
+        Ok(result) => Some(result),
         Err(err) => {
             warn!("{err}");
             None

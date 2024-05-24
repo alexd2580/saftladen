@@ -1,4 +1,5 @@
 use chrono::Local;
+use log::debug;
 use saftbar::bar::{PowerlineDirection, PowerlineStyle};
 use tokio::task::JoinHandle;
 
@@ -62,4 +63,5 @@ async fn time_coroutine(
             _ = wait_seconds(30) => {}
         }
     }
+    debug!("coroutine exiting");
 }

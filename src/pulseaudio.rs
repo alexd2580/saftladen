@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use log::warn;
-use saftbar::bar::{PowerlineStyle, PowerlineDirection};
+use log::{debug, warn};
+use saftbar::bar::{PowerlineDirection, PowerlineStyle};
 // use pulsectl::controllers::{DeviceControl, SinkController};
 use tokio::{sync::Mutex, task::JoinHandle};
 
@@ -124,4 +124,5 @@ async fn pulseaudio_coroutine(
             _ = wait_seconds(120) => {}
         }
     }
+    debug!("coroutine exiting");
 }

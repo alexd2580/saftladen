@@ -1,5 +1,6 @@
 use std::{ops::IndexMut, sync::Arc, time};
 
+use log::debug;
 use saftbar::bar::{PowerlineDirection, PowerlineStyle};
 use sysinfo::{ComponentExt, CpuExt, SystemExt};
 use tokio::{sync::Mutex, task::JoinHandle};
@@ -214,4 +215,5 @@ async fn system_coroutine(
 
         }
     }
+    debug!("coroutine exiting");
 }

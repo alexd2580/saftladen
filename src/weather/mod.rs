@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use chrono::{Local, Timelike};
+use log::debug;
 use saftbar::{
     bar::{PowerlineDirection, PowerlineStyle},
     xft::RGBA,
@@ -13,10 +14,9 @@ use crate::{
     state_item::{
         wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
     },
-    weather::wttrin::get_weather_data,
 };
 
-use self::wttrin::WeatherData;
+use self::wttrin::{get_weather_data, WeatherData};
 
 mod wttrin;
 
@@ -215,4 +215,5 @@ async fn weather_coroutine(
             _ = wait_seconds(1800) => {}
         }
     }
+    debug!("coroutine exiting");
 }
