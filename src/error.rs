@@ -5,7 +5,8 @@ pub enum Error {
     Local(String),
     Io(std::io::Error),
     Tokio(tokio::task::JoinError),
-    // Pulsectl(pulsectl::ControllerError),
+    Reqwest(reqwest::Error),
+    ChronoParse(chrono::ParseError),
 }
 
 impl Display for Error {
@@ -14,7 +15,8 @@ impl Display for Error {
             Error::Local(message) => write!(f, "{message}"),
             Error::Io(err) => write!(f, "Io Error\n{err:?}"),
             Error::Tokio(err) => write!(f, "Tokio Error\n{err:}"),
-            // Error::Pulsectl(err) => write!(f, "Pulsectl Error\n{err:?}"),
+            Error::Reqwest(err) => write!(f, "Reqwest Error\n{err:}"),
+            Error::ChronoParse(err) => write!(f, "Chrono Parse Error\n{err:?}"),
         }
     }
 }
@@ -31,8 +33,14 @@ impl From<tokio::task::JoinError> for Error {
     }
 }
 
-// impl From<pulsectl::ControllerError> for Error {
-//     fn from(value: pulsectl::ControllerError) -> Self {
-//         Self::Pulsectl(value)
-//     }
-// }
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        Self::Reqwest(err)
+    }
+}
+
+impl From<chrono::ParseError> for Error {
+    fn from(value: chrono::ParseError) -> Self {
+        Self::ChronoParse(value)
+    }
+}
