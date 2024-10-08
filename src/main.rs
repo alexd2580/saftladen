@@ -11,9 +11,12 @@ use tokio::signal;
 
 use crate::{bar::SectionWriter, state_item::MainAction};
 
+mod utils;
+
 mod bar;
 mod error;
 mod i3;
+mod paymo;
 mod pulseaudio;
 mod state_item;
 mod system;
@@ -37,11 +40,13 @@ async fn get_displays() -> Result<Vec<(String, (isize, isize))>, Error> {
 
 struct StateItems {
     left: Vec<Box<dyn StateItem>>,
+    center: Vec<Box<dyn StateItem>>,
     right: Vec<Box<dyn StateItem>>,
 }
 
 fn init_state_items() -> StateItems {
-    let i3 = i3::I3::new();
+    let i3 = i3::I3::new().unwrap();
+    let paymo = paymo::Paymo::default();
     let weather = weather::Weather::new();
     let pulseaudio = pulseaudio::Pulseaudio::new();
     let system = system::System::new();
@@ -49,6 +54,7 @@ fn init_state_items() -> StateItems {
 
     StateItems {
         left: vec![Box::new(i3)],
+        center: vec![Box::new(paymo)],
         right: vec![
             Box::new(weather),
             Box::new(pulseaudio),
@@ -71,6 +77,12 @@ async fn redraw(
             item.print(&mut writer, &display.0).await?;
         }
         bar.draw(index, Alignment::Left, &writer.unwrap());
+
+        let mut writer = SectionWriter::default();
+        for item in &state_items.center {
+            item.print(&mut writer, &display.0).await?;
+        }
+        bar.draw(index, Alignment::Center, &writer.unwrap());
 
         let mut writer = SectionWriter::default();
         for item in &state_items.right {
@@ -170,6 +182,7 @@ async fn main() {
     let threads = state_items
         .left
         .iter_mut()
+        .chain(state_items.center.iter_mut())
         .chain(state_items.right.iter_mut())
         .map(|item| item.start_coroutine(main_action_sender.clone(), item_action_sender.listen()))
         .collect::<Vec<_>>();

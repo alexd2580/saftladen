@@ -4,7 +4,7 @@ use async_i3ipc::{
     event::{WorkspaceChange, WorkspaceData},
     reply::{self, Node},
 };
-use log::{error, debug};
+use log::{debug, error};
 use saftbar::{
     bar::{PowerlineDirection, PowerlineStyle},
     xft::RGBA,
@@ -18,8 +18,10 @@ use crate::{
 };
 
 use self::state::State;
+use self::window_title::Shortener;
 
 mod state;
+mod window_title;
 
 struct I3Data {
     tree_state: State,
@@ -28,7 +30,7 @@ struct I3Data {
 }
 
 type SharedData = Arc<Mutex<Option<I3Data>>>;
-pub struct I3(SharedData);
+pub struct I3(Shortener, SharedData);
 
 impl I3 {
     pub async fn displays() -> Result<Vec<(String, (isize, isize))>, Error> {
@@ -45,8 +47,8 @@ impl I3 {
             .collect())
     }
 
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(None)))
+    pub fn new() -> Result<Self, Error> {
+        Ok(Self(Shortener::new()?, Arc::new(Mutex::new(None))))
     }
 }
 
@@ -74,7 +76,7 @@ impl StateItem for I3 {
             tree_state,
             last_focused_workspace,
             last_focused_windows,
-        }) = &*(self.0.lock().await)
+        }) = &*(self.1.lock().await)
         {
             let output = tree_state
                 .0
@@ -104,7 +106,7 @@ impl StateItem for I3 {
                 if windows.is_empty() {
                 } else if windows.len() == 1 {
                     let first = windows.first_key_value().unwrap();
-                    writer.write(format!(" {}", first.1.short_title()));
+                    writer.write(format!(" {}", self.0.shorten(&first.1.title)));
                 } else {
                     for window in windows.values() {
                         let window_visible = last_focused_windows
@@ -114,7 +116,7 @@ impl StateItem for I3 {
                         let window_coloring =
                             choose_coloring(window.urgent, window.active, window_visible);
                         writer.open_(window_coloring);
-                        writer.write(window.short_title().to_string());
+                        writer.write(self.0.shorten(&window.title));
                     }
                 }
 
@@ -130,7 +132,7 @@ impl StateItem for I3 {
         item_action_receiver: ItemActionReceiver,
     ) -> JoinHandle<()> {
         tokio::spawn(i3_coroutine(
-            self.0.clone(),
+            self.1.clone(),
             main_action_sender,
             item_action_receiver,
         ))

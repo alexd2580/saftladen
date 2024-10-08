@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use chrono::{Local, Timelike};
 use log::debug;
 use saftbar::{
     bar::{PowerlineDirection, PowerlineStyle},
@@ -14,6 +13,7 @@ use crate::{
     state_item::{
         wait_seconds, ItemAction, ItemActionReceiver, MainAction, MainActionSender, StateItem,
     },
+    utils::time::{duration_since_midnight, split_duration},
 };
 
 use self::wttrin::{get_weather_data, WeatherData};
@@ -127,17 +127,6 @@ fn next_event(data: &WeatherData, since_midnight: chrono::Duration) -> (&str, ch
         let since_midnight = since_midnight - chrono::Duration::days(1);
         ("", data.midnight_to_sunrise - since_midnight)
     }
-}
-
-fn duration_since_midnight() -> chrono::Duration {
-    let secs_from_midnight = Local::now().num_seconds_from_midnight();
-    chrono::Duration::seconds(i64::from(secs_from_midnight))
-}
-
-fn split_duration(duration: chrono::Duration) -> (i64, i64) {
-    let hours = duration.num_hours();
-    let minutes = (duration - chrono::Duration::hours(hours)).num_minutes();
-    (hours, minutes)
 }
 
 pub const COLD: RGBA = BLUE;

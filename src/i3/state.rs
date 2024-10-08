@@ -4,60 +4,6 @@ use std::collections::{BTreeMap, HashMap};
 use crate::error::Error;
 
 // TODO visible but INACTIVE
-// TODO more icons?
-
-const BROWSERS: [(&str, &str); 2] = [("chrom", ""), ("firefox", "")];
-const SITES: [(&str, &str); 11] = [
-    ("telegram", ""),
-    ("slack", ""),
-    ("github", ""),
-    ("gitlab", ""),
-    ("stack overflow", ""),
-    ("youtube", ""),
-    ("jira", "󰌃"),
-    ("paypal", ""),
-    ("gmail", "󰊫"),
-    ("amazon", ""),
-    ("google", ""),
-];
-
-const EDITORS: [(&str, &str); 1] = [("vim", "")];
-const LANGUAGES: [(&str, &str); 13] = [
-    (".html", ""),
-    (".hpp", ""),
-    (".cpp", ""),
-    (".h", "󰙱"),
-    (".c", "󰙱"),
-    (".ts", "󰛦"),
-    (".tsx", "󰛦"),
-    (".py", ""),
-    (".json", ""),
-    (".jsx", ""),
-    (".js", ""),
-    (".rs", ""),
-    ("docker", ""),
-];
-
-const PROGRAMS: [(&str, &str); 18] = [
-    ("vlc", "󰕼"),
-    ("gimp", ""),
-    ("mumble", ""),
-    ("volume control", ""),
-    ("telegram", ""),
-    ("make", ""),
-    ("psql", ""),
-    ("htop", ""),
-    ("man", ""),
-    ("docker", ""),
-    ("npm", ""),
-    ("node", "󰎙"),
-    ("discord", "󰙯"),
-    ("irssi", ""),
-    ("gdb", ""),
-    ("cargo", ""),
-    ("zsh", ""),
-    (": ~", ""),
-];
 
 #[derive(Debug)]
 pub struct Window {
@@ -79,43 +25,6 @@ impl Window {
                 .ok_or_else(|| Error::Local("Window doesn't have a title".to_string()))?
                 .clone(),
         })
-    }
-
-    pub fn short_title(&self) -> String {
-        let title = self.title.to_lowercase();
-        for (browser, browser_icon) in BROWSERS {
-            if title.contains(browser) {
-                for (site, site_icon) in SITES {
-                    if title.contains(site) {
-                        return format!("{browser_icon}{site_icon}");
-                    }
-                }
-                return browser_icon.to_string();
-            }
-        }
-
-        for (editor, editor_icon) in EDITORS {
-            if title.contains(editor) {
-                for (lang, lang_icon) in LANGUAGES {
-                    if title.contains(lang) {
-                        return format!("{editor_icon}{lang_icon}");
-                    }
-                }
-                return editor_icon.to_string();
-            }
-        }
-
-        for (prgm, prgm_icon) in PROGRAMS {
-            if title.contains(prgm) {
-                return prgm_icon.to_string();
-            }
-        }
-
-        if title.len() > 20 {
-            self.title[..18].to_string()
-        } else {
-            self.title.to_string()
-        }
     }
 }
 
